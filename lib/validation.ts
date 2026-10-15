@@ -1,5 +1,7 @@
 import { z } from "zod";
+import { MEAL_TYPES } from "./meals";
 import { parseQuantity } from "./quantity";
+import { parseISODate } from "./week";
 
 export const signupSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(80),
@@ -109,3 +111,23 @@ export function parseRecipeForm(formData: FormData):
   if (Object.keys(errors).length) return { ok: false, errors };
   return { ok: true, data: parsed.data };
 }
+
+const isoDate = z.string().refine((v) => parseISODate(v) !== null, "Invalid date");
+
+const optionalServings = z
+  .string()
+  .trim()
+  .transform((v) => (v === "" ? undefined : Number(v)))
+  .pipe(z.number().int("Servings must be a whole number").min(1).max(100).optional());
+
+export const addMealSchema = z.object({
+  date: isoDate,
+  mealType: z.enum(MEAL_TYPES),
+  recipeId: z.string().min(1).max(64),
+  servings: optionalServings,
+});
+
+export const updateMealSchema = z.object({
+  entryId: z.string().min(1).max(64),
+  servings: z.coerce.number().int("Servings must be a whole number").min(1).max(100),
+});

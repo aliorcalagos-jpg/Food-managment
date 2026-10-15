@@ -14,6 +14,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         <nav className="flex items-center gap-4 text-sm">
           <span className="font-semibold">{household.name}</span>
           <Link href="/recipes">Recipes</Link>
+          <Link href="/planner">Planner</Link>
           <Link href="/household">Household</Link>
         </nav>
         <form action={logout}>
