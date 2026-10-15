@@ -6,13 +6,13 @@ import { useStore, type Store } from "../store";
 import { Empty } from "./common";
 import { Expenses } from "./Expenses";
 import { Lists } from "./Lists";
-import { Planner } from "./Planner";
 import { Recipes } from "./Recipes";
+import { Week } from "./Week";
 
 const TABS = [
   { id: "expenses", label: "tabExpenses" },
+  { id: "week", label: "tabWeek" },
   { id: "recipes", label: "tabRecipes" },
-  { id: "planner", label: "tabPlanner" },
   { id: "lists", label: "tabLists" },
 ] as const;
 type Tab = (typeof TABS)[number]["id"];
@@ -77,6 +77,12 @@ export function App({ store }: { store: Store }) {
     setOpen((o) => ({ id, key: o.key + 1 }));
     choose("lists");
   };
+  // Jumping from a food with no ingredients on This week opens its edit form.
+  const [edit, setEdit] = useState<{ id: string | null; key: number }>({ id: null, key: 0 });
+  const editRecipe = (id: string) => {
+    setEdit((e) => ({ id, key: e.key + 1 }));
+    choose("recipes");
+  };
   const startTrip = async () => {
     const date = todayISO();
     const id = await store.createList({
@@ -126,9 +132,11 @@ export function App({ store }: { store: Store }) {
           {state.status === "ready" && tab === "expenses" && (
             <Expenses store={store} lists={state.lists} settings={state.settings} onOpenList={openList} onStartTrip={() => void startTrip()} />
           )}
-          {state.status === "ready" && tab === "recipes" && <Recipes store={store} recipes={state.recipes} />}
-          {state.status === "ready" && tab === "planner" && <Planner store={store} recipes={state.recipes} days={state.days} />}
-          {state.status === "ready" && tab === "lists" && <Lists key={open.key} store={store} lists={state.lists} recipes={state.recipes} days={state.days} initialListId={open.id} />}
+          {state.status === "ready" && tab === "week" && (
+            <Week store={store} recipes={state.recipes} weeks={state.weeks} lists={state.lists} onEditRecipe={editRecipe} onOpenList={openList} />
+          )}
+          {state.status === "ready" && tab === "recipes" && <Recipes key={edit.key} store={store} recipes={state.recipes} initialEditId={edit.id} />}
+          {state.status === "ready" && tab === "lists" && <Lists key={open.key} store={store} lists={state.lists} initialListId={open.id} />}
         </main>
       </div>
      </MoneyContext.Provider>

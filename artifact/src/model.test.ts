@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  addItem, addMeal, clearChecked, datesInRange, dropRecipe, generateList, removeItem, removeMeal,
-  setMealServings, toList, toPlanDay, toRecipe, toggleItem, type PlanDay, type Recipe,
+  addItem, buildBuyList, clearChecked, dropRecipeFromWeek, isEmptyWeek, removeItem, setPick,
+  toList, toRecipe, toWeekPlan, toggleItem, type Recipe,
   DEFAULT_SETTINGS, fromSettings, setItemPrice, setShoppedOn, toSettings,
 } from "./model";
 
@@ -17,8 +17,7 @@ const bake: Recipe = {
   id: "bake", title: "Bake", servings: 2, tags: [], instructions: "", sourceUrl: null,
   ingredients: [{ name: "spaghetti", quantity: 1, unit: "kg" }],
 };
-const e = (id: string, recipeId: string, servings: number) => ({ id, mealType: "DINNER" as const, recipeId, servings });
-const day = (date: string, ...entries: ReturnType<typeof e>[]): PlanDay => ({ date, entries });
+const W = "2026-10-12";
 
 describe("reading documents defensively", () => {
   it("fills defaults for missing or wrong-typed fields", () => {
@@ -26,104 +25,104 @@ describe("reading documents defensively", () => {
       id: "r", title: "Untitled", servings: 1, tags: ["a"], instructions: "", sourceUrl: null,
       ingredients: [{ name: "", quantity: 0, unit: "" }, { name: "x", quantity: 0, unit: "" }],
     });
-    expect(toPlanDay("2026-10-12", {}).entries).toEqual([]);
+    expect(toWeekPlan(W, {})).toEqual({ weekStart: W, picks: [], listId: null });
     expect(toList("l", { items: [{ id: "i", name: "milk", checked: "yes" }] }).items[0]).toMatchObject({ checked: false, quantity: 1 });
   });
 });
 
-describe("meal plan edits", () => {
-  it("adds to an empty day, edits servings, removes, and drops a recipe everywhere in the day", () => {
-    let d = addMeal(undefined, "2026-10-12", e("a", "pasta", 4));
-    d = addMeal(d, "2026-10-12", e("b", "bake", 2));
-    expect(d.entries).toHaveLength(2);
-    d = setMealServings(d, "a", 6);
-    expect(d.entries[0].servings).toBe(6);
-    expect(removeMeal(d, "a").entries.map((x) => x.id)).toEqual(["b"]);
-    expect(dropRecipe(d, "pasta").entries.map((x) => x.id)).toEqual(["b"]);
-  });
-  it("does not mutate its input", () => {
-    const d = day("2026-10-12", e("a", "pasta", 4));
-    const frozen = JSON.stringify(d);
-    removeMeal(d, "a"); setMealServings(d, "a", 9); dropRecipe(d, "pasta");
-    expect(JSON.stringify(d)).toBe(frozen);
-  });
-});
-
-describe("datesInRange", () => {
-  it("is inclusive on both ends and empty for bad input", () => {
-    expect(datesInRange("2026-10-30", "2026-11-02")).toEqual(["2026-10-30", "2026-10-31", "2026-11-01", "2026-11-02"]);
-    expect(datesInRange("2026-10-12", "2026-10-12")).toEqual(["2026-10-12"]);
-    expect(datesInRange("2026-10-13", "2026-10-12")).toEqual([]);
-    expect(datesInRange("nope", "2026-10-12")).toEqual([]);
+describe("reading a week", () => {
+  it("keeps good picks once each and ignores damaged ones", () => {
+    const w = toWeekPlan(W, {
+      picks: [
+        { recipeId: "a", servings: 4 },
+        { recipeId: "a", servings: 9 }, // a food is picked once
+        { recipeId: "b", servings: 2.4 }, // rounded
+        { recipeId: "c", servings: 0 },
+        { recipeId: "d", servings: 101 },
+        { recipeId: "", servings: 2 },
+        { servings: 2 },
+        null,
+      ],
+      listId: "l1",
+    });
+    expect(w).toEqual({ weekStart: W, picks: [{ recipeId: "a", servings: 4 }, { recipeId: "b", servings: 2 }], listId: "l1" });
+    expect(toWeekPlan(W, { picks: "x", listId: 5 })).toEqual({ weekStart: W, picks: [], listId: null });
   });
 });
 
-describe("generateList", () => {
-  const days = [
-    day("2026-10-12", e("1", "pasta", 2)),
-    day("2026-10-14", e("2", "pasta", 4)),
-    day("2026-10-16", e("3", "bake", 2)),
-    day("2026-10-19", e("4", "bake", 2)), // after the range
-    day("2026-10-11", e("5", "bake", 2)), // before the range
-  ];
-  const input = { name: "Week", start: "2026-10-12", end: "2026-10-18", shoppedOn: "2026-10-17" };
+describe("choosing foods for the week", () => {
+  it("picks, changes servings and unpicks, keeping the order picked", () => {
+    let w = setPick(undefined, W, "pasta", 4);
+    w = setPick(w, W, "bake", 2);
+    w = setPick(w, W, "pasta", 6);
+    expect(w.picks).toEqual([{ recipeId: "pasta", servings: 6 }, { recipeId: "bake", servings: 2 }]);
+    expect(setPick(w, W, "pasta", null).picks).toEqual([{ recipeId: "bake", servings: 2 }]);
+    expect(setPick(undefined, W, "x", null)).toEqual({ weekStart: W, picks: [], listId: null });
+  });
+  it("keeps the started list when picks change, and does not mutate", () => {
+    const w = { weekStart: W, picks: [{ recipeId: "pasta", servings: 4 }], listId: "l1" };
+    const frozen = JSON.stringify(w);
+    expect(setPick(w, W, "pasta", null).listId).toBe("l1");
+    dropRecipeFromWeek(w, "pasta");
+    expect(JSON.stringify(w)).toBe(frozen);
+  });
+  it("drops a deleted food, and a week with nothing in it is empty", () => {
+    const w = setPick(setPick(undefined, W, "a", 1), W, "b", 1);
+    expect(dropRecipeFromWeek(w, "a").picks.map((p) => p.recipeId)).toEqual(["b"]);
+    expect(isEmptyWeek(dropRecipeFromWeek(dropRecipeFromWeek(w, "a"), "b"))).toBe(true);
+    expect(isEmptyWeek({ ...w, picks: [], listId: "l1" })).toBe(false);
+  });
+});
 
-  it("scales, merges and categorises (same numbers as the Next app)", () => {
-    const r = generateList(input, [pasta, bake], days);
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(r.list.items.map(({ id, ...rest }) => ({ ...rest, id: typeof id }))).toEqual([
+describe("buildBuyList", () => {
+  const picks = [{ recipeId: "pasta", servings: 6 }, { recipeId: "bake", servings: 2 }];
+
+  it("scales each food to the servings picked, merges and categorises (same numbers as the Next app)", () => {
+    const r = buildBuyList(picks, [pasta, bake]);
+    expect(r.items.map(({ id, ...rest }) => ({ ...rest, id: typeof id }))).toEqual([
       { name: "milk", quantity: 3, unit: "cup", category: "Dairy & eggs", checked: false, price: null, id: "string" },
       { name: "spaghetti", quantity: 1.6, unit: "kg", category: "Pantry", checked: false, price: null, id: "string" },
       { name: "tomatoes", quantity: 4.5, unit: "", category: "Produce", checked: false, price: null, id: "string" },
     ]);
-    expect(r.list).toMatchObject({ name: "Week", rangeStart: "2026-10-12", rangeEnd: "2026-10-18", shoppedOn: "2026-10-17" });
+    expect(r.skipped).toEqual([]);
   });
 
-  it("includes both ends of the range", () => {
-    const r = generateList({ ...input, start: "2026-10-16", end: "2026-10-19" }, [pasta, bake], days);
-    expect(r.ok && r.list.items.find((i) => i.name === "spaghetti")?.quantity).toBe(2); // two bakes of 1 kg
+  it("gives every line a distinct id", () => {
+    const ids = buildBuyList(picks, [pasta, bake]).items.map((i) => i.id);
+    expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it("explains why it cannot generate (as message keys the UI translates)", () => {
-    const err = (i: typeof input, d = days) => { const r = generateList(i, [pasta, bake], d); return r.ok ? null : r.error; };
-    expect(err({ ...input, start: "2030-01-01", end: "2030-01-07" })).toEqual({ key: "errNoMeals" });
-    expect(err({ ...input, end: "2026-10-01" })).toEqual({ key: "errEndBefore" });
-    expect(err({ ...input, start: "bad" })).toEqual({ key: "errPickDates" });
-    expect(err({ ...input, start: "2026-01-01", end: "2026-12-31" })).toEqual({ key: "errRangeLong", params: { max: 62 } });
+  it("is empty for no picks and ignores foods that no longer exist", () => {
+    expect(buildBuyList([], [pasta])).toEqual({ items: [], skipped: [] });
+    const r = buildBuyList([{ recipeId: "gone", servings: 2 }, { recipeId: "bake", servings: 2 }], [bake]);
+    expect(r.items.map((i) => i.name)).toEqual(["spaghetti"]);
+    expect(r.skipped).toEqual([]); // a deleted food is not a "food without ingredients"
   });
 
-  it("skips planned meals whose recipe no longer exists", () => {
-    const r = generateList(input, [bake], [day("2026-10-12", e("1", "gone", 2), e("2", "bake", 2))]);
-    expect(r.ok && r.list.items.map((i) => i.name)).toEqual(["spaghetti"]);
-    expect(r.ok && r.skipped).toEqual([]); // a deleted recipe is not a "dish without ingredients"
-    const onlyGone = generateList(input, [bake], [day("2026-10-12", e("1", "gone", 2))]);
-    expect(onlyGone.ok ? null : onlyGone.error).toEqual({ key: "errNoMeals" });
-  });
-
-  describe("dishes that have no ingredients yet", () => {
+  describe("foods that have no ingredients yet", () => {
     const empty1: Recipe = { id: "e1", title: "يخنة بازيلاء", servings: 4, tags: [], instructions: "", sourceUrl: null, ingredients: [] };
     const empty2: Recipe = { ...empty1, id: "e2", title: "رز مع دجاج" };
 
-    it("are left off the list and named, once each, while the rest is built", () => {
-      const r = generateList(input, [bake, empty1], [day("2026-10-12", e("1", "e1", 4), e("2", "bake", 2)), day("2026-10-14", e("3", "e1", 4))]);
-      expect(r.ok && r.list.items.map((i) => i.name)).toEqual(["spaghetti"]);
-      expect(r.ok && r.skipped).toEqual(["يخنة بازيلاء"]);
+    it("add nothing and are named while the rest is built", () => {
+      const r = buildBuyList([{ recipeId: "e1", servings: 4 }, { recipeId: "bake", servings: 2 }], [bake, empty1]);
+      expect(r.items.map((i) => i.name)).toEqual(["spaghetti"]);
+      expect(r.skipped).toEqual(["يخنة بازيلاء"]);
     });
 
-    it("cannot make a list when every planned dish is empty, and says which", () => {
-      const r = generateList(input, [empty1, empty2], [day("2026-10-12", e("1", "e1", 4), e("2", "e2", 4))]);
-      expect(r.ok ? null : r.error).toEqual({ key: "errOnlyEmptyDishes", params: { names: "يخنة بازيلاء · رز مع دجاج" } });
+    it("give an empty list and name every one when nothing else is chosen", () => {
+      const r = buildBuyList([{ recipeId: "e1", servings: 4 }, { recipeId: "e2", servings: 4 }], [empty1, empty2]);
+      expect(r.items).toEqual([]);
+      expect(r.skipped).toEqual(["يخنة بازيلاء", "رز مع دجاج"]);
     });
   });
 
-  it("merges Arabic ingredients across dishes, whichever way rice is spelled", () => {
+  it("merges Arabic ingredients across foods, whichever way rice is spelled", () => {
     const rice1: Recipe = { id: "r1", title: "رز مع دجاج", servings: 4, tags: [], instructions: "", sourceUrl: null,
       ingredients: [{ name: "أرز", quantity: 2, unit: "كوب" }, { name: "دجاج", quantity: 1, unit: "كيلو" }] };
     const kofta: Recipe = { id: "r2", title: "كفتة مع بطاطس و ارز وطماطم", servings: 4, tags: [], instructions: "", sourceUrl: null,
       ingredients: [{ name: "رز", quantity: 1, unit: "كوب" }, { name: "بطاطس", quantity: 500, unit: "جم" }, { name: "طماطم", quantity: 3, unit: "حبة" }] };
-    const r = generateList(input, [rice1, kofta], [day("2026-10-12", e("1", "r1", 4)), day("2026-10-14", e("2", "r2", 4))]);
-    expect(r.ok && r.list.items.map(({ name, quantity, unit, category }) => ({ name, quantity, unit, category }))).toEqual([
+    const r = buildBuyList([{ recipeId: "r1", servings: 4 }, { recipeId: "r2", servings: 4 }], [rice1, kofta]);
+    expect(r.items.map(({ name, quantity, unit, category }) => ({ name, quantity, unit, category }))).toEqual([
       { name: "أرز", quantity: 3, unit: "cup", category: "Pantry" },
       { name: "بطاطس", quantity: 500, unit: "g", category: "Produce" },
       { name: "دجاج", quantity: 1, unit: "kg", category: "Meat & fish" },
@@ -131,9 +130,9 @@ describe("generateList", () => {
     ]);
   });
 
-  it("falls back to a dated name when none is given", () => {
-    const r = generateList({ ...input, name: "  " }, [pasta, bake], days);
-    expect(r.ok && r.list.name).toBe("Meals 2026-10-12 to 2026-10-18");
+  it("scales down for one person from a four-person recipe", () => {
+    const r = buildBuyList([{ recipeId: "pasta", servings: 1 }], [pasta]);
+    expect(r.items.find((i) => i.name === "spaghetti")?.quantity).toBe(100);
   });
 });
 

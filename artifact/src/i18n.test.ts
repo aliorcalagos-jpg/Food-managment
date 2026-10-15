@@ -1,3 +1,5 @@
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { aisleLabel, itemText, TABLES, translate, unitLabel, unitSuggestions } from "./i18n";
 
@@ -22,6 +24,23 @@ describe("translation tables", () => {
     for (const [key, text] of Object.entries(TABLES.ar)) {
       if (!shared.has(key)) expect(text, key).toMatch(/[؀-ۿ]/);
     }
+  });
+});
+
+const sources = (dir: string): string[] =>
+  readdirSync(dir).flatMap((f) => {
+    const p = join(dir, f);
+    if (statSync(p).isDirectory()) return sources(p);
+    return /\.tsx?$/.test(f) && !/\.test\.|i18n\.ts$/.test(f) ? [readFileSync(p, "utf8")] : [];
+  });
+
+describe("translation keys", () => {
+  it("are all used somewhere (a key nobody shows is dead text to translate)", () => {
+    const code = sources(__dirname).join("\n");
+    // aisle and unit names are looked up by a built key ("aisle:Produce"), so they are not written out in code
+    const dynamic = /^(aisle|unit):/;
+    const unused = Object.keys(TABLES.en).filter((k) => !dynamic.test(k) && !new RegExp(`["'\`]${k}["'\`]`).test(code));
+    expect(unused).toEqual([]);
   });
 });
 

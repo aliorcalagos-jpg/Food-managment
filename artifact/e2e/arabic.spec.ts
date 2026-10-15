@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { openArtifact, stored, type Seed } from "./harness";
 
 const TODAY = "2026-10-14"; // Wednesday, so the week is Mon Oct 12 - Sun Oct 18
@@ -19,16 +19,6 @@ async function addIngredients(page: Page, rows: [string, string, string][]) {
     await page.getByLabel(`المكوّن ${i + 1}`, { exact: true }).fill(name);
   }
   await page.getByRole("button", { name: "حفظ الوصفة" }).click();
-}
-
-const slot = (day: Locator, meal: string) => day.locator(".slot", { has: day.page().getByRole("heading", { name: meal, exact: true }) });
-
-async function plan(page: Page, dayIndex: number, dish: string) {
-  const row = slot(page.locator("section.day").nth(dayIndex), "العشاء");
-  await row.getByRole("button", { name: "إضافة وصفة" }).click();
-  await row.getByRole("combobox").selectOption({ label: dish });
-  await row.getByRole("button", { name: "إضافة", exact: true }).click();
-  await expect(row.getByText(dish, { exact: true })).toBeVisible();
 }
 
 test("opens in Arabic, right-to-left, and the switch flips direction, text and the saved setting", async ({ page }) => {
@@ -84,32 +74,34 @@ test("the user's five dishes: add ingredients in Arabic, plan, and get one merge
   await expect(page.getByText("500 جم بطاطس")).toBeVisible();
   await page.getByRole("button", { name: "كل الوصفات" }).click();
 
-  // planner, in Arabic: Monday, Wednesday and Thursday dinners (يخنة بازيلاء has no ingredients yet)
-  await page.getByRole("button", { name: "الخطة" }).click();
-  await expect(page.locator("section.day")).toHaveCount(7);
-  await expect(page.locator("section.day").nth(2).getByText("اليوم")).toBeVisible(); // Wednesday is today
-  await plan(page, 0, "رز مع دجاج");
-  await plan(page, 2, "كفتة مع بطاطس و ارز وطماطم");
-  await plan(page, 3, "يخنة بازيلاء");
+  // this week, in Arabic: tap three dishes (يخنة بازيلاء has no ingredients yet)
+  await page.getByRole("button", { name: "هذا الأسبوع", exact: true }).first().click();
+  const food = (title: string) => page.getByRole("button", { name: title, exact: true });
+  const buy = page.getByRole("complementary");
+  await food("رز مع دجاج").click();
+  await food("كفتة مع بطاطس و ارز وطماطم").click();
+  await food("يخنة بازيلاء").click();
 
-  // the list: one rice line, whichever spelling was used, grouped by Arabic aisle names
-  await page.getByRole("button", { name: "القوائم" }).click();
-  await page.getByRole("button", { name: "إنشاء من خطة الوجبات" }).click();
-  // the default list name is in Arabic too, and quantities are left-to-right runs (so 1 1/2 is never visually reordered)
-  await expect(page.getByRole("heading", { name: /^وجبات / })).toBeVisible();
-  await expect(page.locator('li.item bdi[dir="ltr"]', { hasText: "1 1/2" })).toHaveCount(1);
-  await expect(page.getByLabel("3 كوب أرز")).toBeVisible(); // 2 + 1 cups
-  await expect(page.getByLabel("500 جم بطاطس")).toBeVisible();
-  await expect(page.getByLabel("1 1/2 كيلو دجاج")).toBeVisible();
-  await expect(page.getByLabel("3 طماطم")).toBeVisible();
-  await expect(page.locator("li.item", { hasText: "كوب" })).toHaveCount(1); // one cup line: both rice spellings merged
-  expect(await page.locator("section.aisle").evaluateAll((els) => els.map((e) => e.getAttribute("aria-label")))).toEqual([
+  // what to buy, at once: one rice line, whichever spelling was used, grouped by Arabic aisle names
+  await expect(buy.getByText("3 كوب أرز")).toBeVisible(); // 2 + 1 cups
+  await expect(buy.getByText("500 جم بطاطس")).toBeVisible();
+  await expect(buy.getByText("1 1/2 كيلو دجاج")).toBeVisible();
+  await expect(buy.getByText("3 طماطم")).toBeVisible();
+  await expect(buy.locator("li", { hasText: "كوب" })).toHaveCount(1); // both rice spellings merged
+  expect(await buy.locator("section.aisle").evaluateAll((els) => els.map((e) => e.getAttribute("aria-label")))).toEqual([
     "الخضار والفاكهة",
     "اللحوم والأسماك",
     "المؤن",
   ]);
-  // the dish with no ingredients is named instead of silently missing
-  await expect(page.getByRole("note")).toContainText("يخنة بازيلاء");
+  await expect(buy.getByText("4 عناصر")).toBeVisible();
+  // the dish with no ingredients is named instead of silently missing, with a way to fix it
+  await expect(buy.getByRole("note")).toContainText("يخنة بازيلاء");
+  await expect(buy.locator('li bdi[dir="ltr"]', { hasText: "1 1/2" })).toHaveCount(1); // quantities are left-to-right runs
+
+  // start shopping: the list opens with an Arabic default name
+  await buy.getByRole("button", { name: "ابدأ التسوق" }).click();
+  await expect(page.getByRole("heading", { name: /^تسوق / })).toBeVisible();
+  await expect(page.getByLabel("3 كوب أرز")).toBeVisible();
   await expect(page.getByText("تم: 0 من 4")).toBeVisible();
 
   // ticking works in Arabic too
@@ -117,26 +109,28 @@ test("the user's five dishes: add ingredients in Arabic, plan, and get one merge
   await expect(page.getByText("تم: 1 من 4")).toBeVisible();
 });
 
-test("a list cannot be built from dishes that have no ingredients yet, and says which", async ({ page }) => {
+test("a food with no ingredients is named, can be fixed from This week, and the buy list stays empty", async ({ page }) => {
   await openArtifact(page, {
     today: TODAY,
     lang: "ar",
-    seed: { ...seed, plan: { "2026-10-12": { entries: [{ id: "a", mealType: "DINNER", recipeId: "dish-1", servings: 4 }] } } },
+    tab: "week",
+    seed: { ...seed, week: { "2026-10-12": { picks: [{ recipeId: "dish-1", servings: 4 }], listId: null } } },
   });
-  await page.getByRole("button", { name: "القوائم" }).click();
-  await page.getByRole("button", { name: "إنشاء من خطة الوجبات" }).click();
-  await expect(page.getByText(/الأطباق المخططة ليس لها مكوّنات بعد: يخنة بازيلاء/)).toBeVisible();
+  const buy = page.getByRole("complementary");
+  await expect(buy.getByText("الأطباق المختارة بلا مكوّنات بعد.")).toBeVisible();
+  await expect(buy.getByRole("button", { name: "ابدأ التسوق" })).toBeDisabled();
   expect(await stored(page, "lists")).toEqual([]); // nothing half-made was saved
+  await page.locator("li.food", { hasText: "يخنة بازيلاء" }).getByRole("button", { name: "أضف المكوّنات" }).click(); // jumps to that dish's edit form
+  await expect(page.getByLabel("الاسم", { exact: true })).toHaveValue(/^يخنة/);
 });
 
 test("English users get plain English for the same situations", async ({ page }) => {
   await openArtifact(page, {
     today: TODAY,
     lang: "en",
-    seed: { ...seed, plan: { "2026-10-12": { entries: [{ id: "a", mealType: "DINNER", recipeId: "dish-1", servings: 4 }] } } },
+    tab: "week",
+    seed: { ...seed, week: { "2026-10-12": { picks: [{ recipeId: "dish-1", servings: 4 }], listId: null } } },
   });
-  await expect(page.getByRole("button", { name: /رز مع دجاج/ })).toContainText("No ingredients yet");
-  await page.getByRole("button", { name: "Lists" }).click();
-  await page.getByRole("button", { name: "Generate from meal plan" }).click();
-  await expect(page.getByText("The planned dishes have no ingredients yet: يخنة بازيلاء. Add ingredients to them first.")).toBeVisible();
+  await expect(page.getByRole("complementary").getByText("The chosen foods have no ingredients yet.")).toBeVisible();
+  await expect(page.getByRole("complementary").getByRole("note")).toContainText("Not on the list because they have no ingredients yet: يخنة بازيلاء");
 });

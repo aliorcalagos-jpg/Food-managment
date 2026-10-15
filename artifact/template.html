@@ -138,20 +138,25 @@ fieldset { border: 0; padding: 0; margin: 0; min-width: 0; display: flex; flex-d
 
 .weeknav { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; }
 .week-range { font-weight: 600; }
-.days { display: flex; flex-direction: column; gap: 14px; }
-.day { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; }
-.day-title { margin: 0 0 8px; font-size: 1.05rem; }
-.slot { display: grid; grid-template-columns: 5.5rem minmax(0, 1fr); gap: 2px 12px; padding: 4px 0; border-top: 1px solid var(--line); align-items: start; }
-.slot h4 { padding-top: 9px; }
-/* flex-start: without it the "Add a recipe" buttons stretch to full width and centre their text */
-.slot-body { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; }
-.entry { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
-.entry-title { font-weight: 600; }
-.entry .servings { width: 4.5rem; }
-.add-meal { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.add-meal select { flex: 1 1 10rem; width: auto; }
-.add-meal input { width: 6.5rem; }
-
+.week-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; align-items: start; }
+@media (min-width: 860px) { .week-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 22rem); } .buy { position: sticky; top: 12px; } }
+.food { display: flex; flex-direction: column; }
+.food-btn { display: flex; align-items: center; gap: 14px; width: 100%; min-height: 56px; padding: 10px 4px; text-align: start; background: none; border: 0; font: inherit; color: inherit; cursor: pointer; }
+.food-btn:hover .row-title { color: var(--accent); }
+.food-mark { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border: 2px solid var(--line); border-radius: 8px; font-weight: 700; color: var(--accent-ink, #fff); }
+.food.on .food-mark { background: var(--accent); border-color: var(--accent); }
+.food.on { background: var(--accent-soft); }
+.food-note { margin: 0 0 10px 0; padding-inline-start: 46px; }
+.food-servings { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 0 4px 12px; padding-inline-start: 46px; }
+.stepper { display: inline-flex; align-items: center; gap: 6px; }
+.stepper .icon-btn { min-width: 44px; min-height: 44px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); font-size: 1.25rem; }
+.stepper .icon-btn:disabled { opacity: .4; cursor: default; }
+.stepper-n { min-width: 2.25rem; text-align: center; font-weight: 700; font-size: 1.125rem; }
+.buy-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.buy-head h3 { margin: 0; }
+.buy-item { padding: 8px 2px; }
+.buy .banner { margin: 0; }
+.hint { margin: 4px 0 0; font-size: .875rem; }
 .inline-form, .add-item { display: grid; grid-template-columns: 4.5rem 5.5rem minmax(0, 1fr) auto; gap: 8px; align-items: center; }
 .inline-form { grid-template-columns: minmax(0, 1fr) auto; }
 .aisle { margin-top: 6px; }
@@ -226,9 +231,6 @@ fieldset { border: 0; padding: 0; margin: 0; min-width: 0; display: flex; flex-d
 
 @media (max-width: 520px) {
   .two { grid-template-columns: minmax(0, 1fr); }
-  .slot { grid-template-columns: minmax(0, 1fr); }
-  .slot h4 { padding-top: 6px; }
-  .entry-title { flex-basis: 100%; }
   .ing-row, .add-item { grid-template-columns: 4rem 4.5rem minmax(0, 1fr) auto; gap: 6px; }
   .bar-row { grid-template-columns: 5rem minmax(0, 1fr) auto; gap: 8px; }
   .price-input { width: 4.75rem; }

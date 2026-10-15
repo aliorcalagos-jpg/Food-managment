@@ -3,56 +3,37 @@ import { currencySymbol, editableAmount, parseMoney } from "../../../lib/money";
 import { categorize } from "../../../lib/categories";
 import { groupItems } from "../../../lib/list-build";
 import { parseQuantity } from "../../../lib/quantity";
-import { addDays, formatRange, parseISODate, startOfWeek, toISODate } from "../../../lib/week";
+import { formatRange, parseISODate } from "../../../lib/week";
 import { aisleLabel, useI18n, type Msg } from "../i18n";
-import { addItem, clearChecked, generateList, removeItem, setItemPrice, setShoppedOn, toggleItem, type PlanDay, type Recipe, type ShoppingList } from "../model";
+import { addItem, clearChecked, removeItem, setItemPrice, setShoppedOn, toggleItem, type ShoppingList } from "../model";
 import { useMoney } from "../money-context";
 import { listTotals } from "../spending";
 import type { Store } from "../store";
 import { todayISO } from "../today";
 import { Arrow, ConfirmAction, Empty, FieldError, ItemLabel, Money } from "./common";
 
-type View = { kind: "index" } | { kind: "detail"; id: string; skipped?: string[] };
+type View = { kind: "index" } | { kind: "detail"; id: string };
 
 export function Lists({
   store,
   lists,
-  recipes,
-  days,
   initialListId,
 }: {
   store: Store;
   lists: ShoppingList[];
-  recipes: Recipe[];
-  days: PlanDay[];
   /** Open this list straight away (used when jumping here from the Expenses tab). */
   initialListId?: string | null;
 }) {
   const [view, setView] = useState<View>(initialListId ? { kind: "detail", id: initialListId } : { kind: "index" });
   if (view.kind === "detail") {
-    return <ListDetail store={store} list={lists.find((l) => l.id === view.id)} skipped={view.skipped} onBack={() => setView({ kind: "index" })} />;
+    return <ListDetail store={store} list={lists.find((l) => l.id === view.id)} onBack={() => setView({ kind: "index" })} />;
   }
-  return <ListIndex store={store} lists={lists} recipes={recipes} days={days} onOpen={(id, skipped) => setView({ kind: "detail", id, skipped })} />;
+  return <ListIndex store={store} lists={lists} onOpen={(id) => setView({ kind: "detail", id })} />;
 }
 
-function ListIndex({ store, lists, recipes, days, onOpen }: { store: Store; lists: ShoppingList[]; recipes: Recipe[]; days: PlanDay[]; onOpen: (id: string, skipped?: string[]) => void }) {
+function ListIndex({ store, lists, onOpen }: { store: Store; lists: ShoppingList[]; onOpen: (id: string) => void }) {
   const { t, lang } = useI18n();
-  const monday = startOfWeek(parseISODate(todayISO())!);
-  const [v, setV] = useState({ name: "", start: toISODate(monday), end: toISODate(addDays(monday, 6)) });
-  const [error, setError] = useState<Msg | null>(null);
   const [blank, setBlank] = useState("");
-
-  async function generate(e: React.FormEvent) {
-    e.preventDefault();
-    // a default name in the current language, e.g. "وجبات 12 أكتوبر – 18 أكتوبر 2026"
-    const [a, b] = [parseISODate(v.start), parseISODate(v.end)];
-    const fallback = a && b ? t("defaultListName", { range: formatRange(a, b, lang) }) : "";
-    const result = generateList({ ...v, name: v.name.trim() || fallback, shoppedOn: todayISO() }, recipes, days);
-    if (!result.ok) return setError(result.error);
-    setError(null);
-    const id = await store.createList({ ...result.list, createdAt: new Date().toISOString() });
-    if (id) onOpen(id, result.skipped);
-  }
 
   async function createBlank(e: React.FormEvent) {
     e.preventDefault();
@@ -71,27 +52,7 @@ function ListIndex({ store, lists, recipes, days, onOpen }: { store: Store; list
     <section aria-labelledby="lists-h" className="stack">
       <h2 id="lists-h">{t("listsH")}</h2>
 
-      <form onSubmit={generate} className="card stack" noValidate>
-        <h3>{t("newListFromPlan")}</h3>
-        <div className="two">
-          <div className="field">
-            <label htmlFor="gen-start">{t("from")}</label>
-            <input id="gen-start" type="date" value={v.start} onChange={(e) => setV({ ...v, start: e.target.value })} />
-          </div>
-          <div className="field">
-            <label htmlFor="gen-end">{t("to")}</label>
-            <input id="gen-end" type="date" value={v.end} onChange={(e) => setV({ ...v, end: e.target.value })} aria-describedby="gen-err" />
-          </div>
-        </div>
-        <div className="field">
-          <label htmlFor="gen-name">{t("listName")}</label>
-          <input id="gen-name" dir="auto" maxLength={80} placeholder={t("phListName")} value={v.name} onChange={(e) => setV({ ...v, name: e.target.value })} />
-        </div>
-        <FieldError id="gen-err" msg={error} />
-        <button type="submit" className="btn primary">
-          {t("generate")}
-        </button>
-      </form>
+      <p className="muted">{t("listsHint")}</p>
 
       <form onSubmit={createBlank} className="inline-form">
         <label className="sr-only" htmlFor="blank-name">
@@ -129,11 +90,10 @@ function ListIndex({ store, lists, recipes, days, onOpen }: { store: Store; list
   );
 }
 
-function ListDetail({ store, list, skipped, onBack }: { store: Store; list: ShoppingList | undefined; skipped?: string[]; onBack: () => void }) {
+function ListDetail({ store, list, onBack }: { store: Store; list: ShoppingList | undefined; onBack: () => void }) {
   const { t, lang } = useI18n();
   const [item, setItem] = useState({ quantity: "", unit: "", name: "" });
   const [error, setError] = useState<Msg | null>(null);
-  const [noteOpen, setNoteOpen] = useState(true);
 
   if (!list) {
     return (
@@ -203,15 +163,6 @@ function ListDetail({ store, list, skipped, onBack }: { store: Store; list: Shop
           </p>
         )}
       </div>
-
-      {skipped && skipped.length > 0 && noteOpen && (
-        <div className="banner" role="note">
-          <span>{t("noteSkipped", { names: skipped.join(" · ") })}</span>
-          <button type="button" className="link" onClick={() => setNoteOpen(false)}>
-            {t("dismiss")}
-          </button>
-        </div>
-      )}
 
       <form onSubmit={add} className="add-item" noValidate>
         <label className="sr-only" htmlFor="item-qty">{t("itemQty")}</label>

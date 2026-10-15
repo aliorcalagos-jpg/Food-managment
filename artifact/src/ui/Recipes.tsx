@@ -13,8 +13,8 @@ type View = { kind: "list" } | { kind: "detail"; id: string } | { kind: "edit"; 
 // Search folds spelling variants, so typing ارز finds أرز and رز.
 const fold = (s: string) => normalizeArabic(s).toLowerCase();
 
-export function Recipes({ store, recipes }: { store: Store; recipes: Recipe[] }) {
-  const [view, setView] = useState<View>({ kind: "list" });
+export function Recipes({ store, recipes, initialEditId }: { store: Store; recipes: Recipe[]; /** Open this food's edit form straight away (the This week tab jumps here to add ingredients). */ initialEditId?: string | null }) {
+  const [view, setView] = useState<View>(initialEditId ? { kind: "edit", id: initialEditId } : { kind: "list" });
   const [q, setQ] = useState("");
   const [tag, setTag] = useState("");
 
@@ -241,7 +241,7 @@ function RecipeDetail({
 }
 
 function blankForm(): RecipeFormValues {
-  return { title: "", servings: "4", tags: "", sourceUrl: "", instructions: "", rows: [{ name: "", quantity: "", unit: "" }] };
+  return { title: "", servings: "1", tags: "", sourceUrl: "", instructions: "", rows: [{ name: "", quantity: "", unit: "" }] };
 }
 
 function toForm(r: Recipe): RecipeFormValues {
@@ -302,7 +302,8 @@ function RecipeForm({
       <div className="two">
         <div className="field">
           <label htmlFor="recipe-servings">{t("fServings")}</label>
-          <input id="recipe-servings" type="number" inputMode="numeric" min={1} max={100} value={v.servings} aria-describedby="recipe-servings-err" onChange={(e) => setV({ ...v, servings: e.target.value })} />
+          <input id="recipe-servings" type="number" inputMode="numeric" min={1} max={100} value={v.servings} aria-describedby="recipe-servings-hint recipe-servings-err" onChange={(e) => setV({ ...v, servings: e.target.value })} />
+          <p className="hint muted" id="recipe-servings-hint">{t("fServingsHint")}</p>
           <FieldError id="recipe-servings-err" msg={errors.servings} />
         </div>
         <div className="field">

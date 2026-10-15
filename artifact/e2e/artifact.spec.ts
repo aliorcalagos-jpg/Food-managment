@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { openArtifact, stored } from "./harness";
 
 const TODAY = "2026-10-14"; // a Wednesday, so the week is Mon Oct 12 - Sun Oct 18
@@ -6,7 +6,7 @@ const TODAY = "2026-10-14"; // a Wednesday, so the week is Mon Oct 12 - Sun Oct 
 async function addRecipe(page: Page, title: string, servings: string, ings: [string, string, string][]) {
   await page.getByRole("button", { name: "New recipe" }).click();
   await page.getByLabel("Title", { exact: true }).fill(title);
-  await page.getByLabel("Servings", { exact: true }).fill(servings);
+  await page.getByLabel("Servings these quantities make", { exact: true }).fill(servings);
   for (const [i, [qty, unit, name]] of ings.entries()) {
     if (i > 0) await page.getByRole("button", { name: "+ Add ingredient" }).click();
     await page.getByLabel(`Quantity ${i + 1}`, { exact: true }).fill(qty);
@@ -17,18 +17,10 @@ async function addRecipe(page: Page, title: string, servings: string, ings: [str
   await expect(page.getByRole("heading", { name: title })).toBeVisible();
 }
 
-const slot = (day: Locator, meal: string) => day.locator(".slot", { has: day.page().getByRole("heading", { name: meal, exact: true }) });
+const buyPanel = (page: Page) => page.getByRole("complementary");
+const foodRow = (page: Page, title: string) => page.getByRole("button", { name: title, exact: true });
 
-async function plan(page: Page, dayName: string, recipe: string, servings?: string) {
-  const row = slot(page.getByRole("region", { name: dayName }), "Dinner");
-  await row.getByRole("button", { name: "Add a recipe" }).click();
-  await row.getByRole("combobox").selectOption({ label: recipe });
-  if (servings) await row.getByPlaceholder("servings").fill(servings);
-  await row.getByRole("button", { name: "Add", exact: true }).click();
-  await expect(row.getByText(recipe, { exact: true })).toBeVisible();
-}
-
-test("recipes, planner and shopping list end to end", async ({ page }) => {
+test("recipes, this week and shopping list end to end", async ({ page }) => {
   const { blocked } = await openArtifact(page, { today: TODAY });
 
   // designed empty state, then validation that keeps what was typed
@@ -60,26 +52,40 @@ test("recipes, planner and shopping list end to end", async ({ page }) => {
   await page.getByRole("button", { name: "Clear filters" }).click();
   await expect(page.getByRole("button", { name: /Bake/ })).toBeVisible();
 
-  // planner: fixed week, today marked, explicit and default servings
-  await page.getByRole("button", { name: "Planner" }).click();
+  // this week: fixed week, nothing chosen yet
+  await page.getByRole("button", { name: "This week", exact: true }).first().click();
   await expect(page.getByText("Oct 12 – Oct 18, 2026")).toBeVisible();
-  await expect(page.getByRole("region", { name: "Wednesday, Oct 14" }).getByText("Today")).toBeVisible();
-  await plan(page, "Monday, Oct 12", "Pasta", "2"); // half: 200 g, 1 cup, 1.5 tomatoes
-  await plan(page, "Wednesday, Oct 14", "Pasta"); // as written (4)
-  await plan(page, "Friday, Oct 16", "Bake"); // 1 kg
-  await expect(slot(page.getByRole("region", { name: "Wednesday, Oct 14" }), "Dinner").getByLabel("Servings for Pasta")).toHaveValue("4");
+  await expect(buyPanel(page).getByText("Tap a food to see what you need to buy.")).toBeVisible();
+  await expect(buyPanel(page).getByRole("button", { name: "Start shopping" })).toBeDisabled();
 
-  // editing servings persists
-  const monDinner = slot(page.getByRole("region", { name: "Monday, Oct 12" }), "Dinner");
-  await monDinner.getByLabel("Servings for Pasta").fill("2");
-  await monDinner.getByLabel("Servings for Pasta").press("Enter");
+  // tapping a food adds it at once, at the servings its recipe makes
+  await foodRow(page, "Pasta").click();
+  await expect(foodRow(page, "Pasta")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByText("Recipe makes 4")).toBeVisible();
+  await expect(buyPanel(page).getByText("400 g spaghetti")).toBeVisible();
+  // more servings scale everything: 6 of a 4-serving recipe
+  await page.getByRole("button", { name: "More servings of Pasta" }).click();
+  await page.getByRole("button", { name: "More servings of Pasta" }).click();
+  await expect(buyPanel(page).getByText("600 g spaghetti")).toBeVisible();
+  await foodRow(page, "Bake").click(); // 1 kg
+  await expect(buyPanel(page).getByText("1.6 kg spaghetti")).toBeVisible(); // 600 g + 1 kg
+  await expect(buyPanel(page).getByText("3 cup milk")).toBeVisible();
+  await expect(buyPanel(page).getByText("4 1/2 tomatoes")).toBeVisible();
+  await expect(buyPanel(page).getByText("3 items")).toBeVisible();
+  expect(await buyPanel(page).getByRole("region").evaluateAll((els) => els.map((e) => e.getAttribute("aria-label")))).toEqual(["Produce", "Dairy & eggs", "Pantry"]);
+  await expect.poll(async () => (await stored(page, "week"))[0]?.picks).toEqual([{ recipeId: expect.any(String), servings: 6 }, { recipeId: expect.any(String), servings: 2 }]);
 
-  // generate the list (defaults to the current week)
-  await page.getByRole("button", { name: "Lists" }).click();
-  await page.getByRole("button", { name: "Generate from meal plan" }).click();
-  await expect(page.getByLabel("1.6 kg spaghetti")).toBeVisible(); // 200 g + 400 g + 1 kg
-  await expect(page.getByLabel("3 cup milk")).toBeVisible(); // 1 + 2, unit kept
-  await expect(page.getByLabel("4 1/2 tomatoes")).toBeVisible(); // 1.5 + 3
+  // untapping takes it off the list at once
+  await foodRow(page, "Bake").click();
+  await expect(buyPanel(page).getByText("600 g spaghetti")).toBeVisible();
+  await foodRow(page, "Bake").click();
+
+  // start shopping: a list is saved and opened
+  await buyPanel(page).getByRole("button", { name: "Start shopping" }).click();
+  await expect(page.getByRole("heading", { name: "Shopping 2026-10-14" })).toBeVisible();
+  await expect(page.getByLabel("1.6 kg spaghetti")).toBeVisible();
+  await expect(page.getByLabel("3 cup milk")).toBeVisible();
+  await expect(page.getByLabel("4 1/2 tomatoes")).toBeVisible();
   await expect(page.getByText("0 of 3 done")).toBeVisible();
   expect(await page.getByRole("region").evaluateAll((els) => els.map((e) => e.getAttribute("aria-label")))).toEqual(["Produce", "Dairy & eggs", "Pantry"]);
 
@@ -94,7 +100,7 @@ test("recipes, planner and shopping list end to end", async ({ page }) => {
   await expect.poll(async () => ((await stored(page, "lists"))[0].items as { checked: boolean }[]).filter((i) => i.checked).length).toBe(2);
   await setDelay(15);
   await page.reload();
-  await page.getByRole("button", { name: /^Meals/ }).click();
+  await page.getByRole("button", { name: /^Shopping/ }).click();
   await expect(page.getByLabel("3 cup milk")).toBeChecked();
   await expect(page.getByLabel("4 1/2 tomatoes")).toBeChecked();
   await expect(page.getByLabel("1.6 kg spaghetti")).not.toBeChecked();
@@ -118,15 +124,16 @@ test("recipes, planner and shopping list end to end", async ({ page }) => {
   await expect(page.getByLabel("3 cup milk")).toHaveCount(0);
   await expect(page.getByLabel("1.6 kg spaghetti")).toBeVisible();
 
-  // deleting a recipe also removes its planned meals; the list already made is untouched
+  // deleting a recipe also takes it off the week; the list already made is untouched
   await page.getByRole("button", { name: "Recipes" }).click();
   await page.getByRole("button", { name: /Bake/ }).click();
   await page.getByRole("button", { name: "Delete", exact: true }).click();
-  await page.getByRole("button", { name: "Delete recipe and its planned meals" }).click();
+  await page.getByRole("button", { name: "Delete recipe and take it off the week" }).click();
   await expect(page.getByText("Bake")).toHaveCount(0);
-  await page.getByRole("button", { name: "Planner" }).click();
-  await expect(page.getByRole("region", { name: "Friday, Oct 16" }).getByText("Bake")).toHaveCount(0);
-  expect((await stored(page, "plan")).map((d) => (d.entries as unknown[]).length)).toEqual([1, 1]); // Mon, Wed. Friday's doc is gone.
+  await page.getByRole("button", { name: "This week", exact: true }).first().click();
+  await expect(foodRow(page, "Bake")).toHaveCount(0);
+  await expect.poll(async () => ((await stored(page, "week"))[0].picks as { servings: number }[]).map((p) => p.servings)).toEqual([6]);
+  expect((await stored(page, "lists"))).toHaveLength(1);
 
   // the db contract: never two writes to one document at once, nothing external loaded
   expect(await page.evaluate(() => (window as unknown as { __overlaps: number }).__overlaps)).toBe(0);
@@ -161,7 +168,7 @@ test("explains itself when storage is unavailable", async ({ page }) => {
   await expect(page.getByRole("button", { name: "New recipe" })).toHaveCount(0);
 });
 
-test("example recipes can be removed together with their planned meals", async ({ page }) => {
+test("example recipes can be removed, and come off the week too", async ({ page }) => {
   await openArtifact(page, {
     today: TODAY,
     seed: {
@@ -169,7 +176,7 @@ test("example recipes can be removed together with their planned meals", async (
         ex1: { title: "Example soup", servings: 2, tags: ["example"], instructions: "", sourceUrl: null, ingredients: [{ name: "leek", quantity: 1, unit: "" }] },
         mine: { title: "My own dish", servings: 2, tags: [], instructions: "", sourceUrl: null, ingredients: [{ name: "rice", quantity: 1, unit: "cup" }] },
       },
-      plan: { "2026-10-14": { entries: [{ id: "a", mealType: "DINNER", recipeId: "ex1", servings: 2 }, { id: "b", mealType: "DINNER", recipeId: "mine", servings: 2 }] } },
+      week: { "2026-10-12": { picks: [{ recipeId: "ex1", servings: 2 }, { recipeId: "mine", servings: 2 }], listId: null } },
     },
   });
   await expect(page.getByText("These are example recipes")).toBeVisible();
@@ -178,5 +185,5 @@ test("example recipes can be removed together with their planned meals", async (
   await expect(page.getByText("These are example recipes")).toHaveCount(0);
   await expect(page.getByRole("button", { name: /Example soup/ })).toHaveCount(0);
   await expect(page.getByRole("button", { name: /My own dish/ })).toBeVisible();
-  expect((await stored(page, "plan"))[0].entries).toEqual([{ id: "b", mealType: "DINNER", recipeId: "mine", servings: 2 }]);
+  expect((await stored(page, "week"))[0].picks).toEqual([{ recipeId: "mine", servings: 2 }]);
 });

@@ -1,14 +1,14 @@
 import { useSyncExternalStore } from "react";
 import {
-  DEFAULT_SETTINGS, dropRecipe, fromSettings, newId, toList, toPlanDay, toRecipe, toSettings,
-  type PlanDay, type Recipe, type Settings, type ShoppingList,
+  DEFAULT_SETTINGS, dropRecipeFromWeek, fromSettings, isEmptyWeek, newId, toList, toRecipe, toSettings, toWeekPlan,
+  type Recipe, type Settings, type ShoppingList, type WeekPlan,
 } from "./model";
 import type { Db, DocSnap } from "./runtime";
 
 export type State = {
   status: "loading" | "ready" | "unavailable";
   recipes: Recipe[];
-  days: PlanDay[];
+  weeks: WeekPlan[];
   lists: ShoppingList[];
   /** Language, currency, exchange rate and weekly budget (defaults until saved). */
   settings: Settings;
@@ -18,7 +18,7 @@ export type State = {
 
 export const EXAMPLE_TAG = "example";
 
-type CollectionName = "recipes" | "plan" | "lists" | "meta";
+type CollectionName = "recipes" | "week" | "lists" | "meta";
 
 export type Store = ReturnType<typeof createStore>;
 
@@ -37,7 +37,7 @@ export function createStore(db: Db | null) {
   let state: State = {
     status: db ? "loading" : "unavailable",
     recipes: [],
-    days: [],
+    weeks: [],
     lists: [],
     settings: DEFAULT_SETTINGS,
     error: null,
@@ -69,7 +69,7 @@ export function createStore(db: Db | null) {
 
   // Subscribe once per collection; every view is derived from this state.
   if (db) {
-    const waiting = new Set<CollectionName>(["recipes", "plan", "lists", "meta"]);
+    const waiting = new Set<CollectionName>(["recipes", "week", "lists", "meta"]);
     const watch = (name: CollectionName, apply: (docs: DocSnap[]) => Partial<State>) =>
       db.collection(name).onSnapshot(
         (snap) => {
@@ -80,7 +80,7 @@ export function createStore(db: Db | null) {
         (e) => set({ status: "unavailable", error: e.message }),
       );
     watch("recipes", (docs) => ({ recipes: docs.map((d) => toRecipe(d.id, d.data() ?? {})) }));
-    watch("plan", (docs) => ({ days: docs.map((d) => toPlanDay(d.id, d.data() ?? {})) }));
+    watch("week", (docs) => ({ weeks: docs.map((d) => toWeekPlan(d.id, d.data() ?? {})) }));
     watch("lists", (docs) => ({ lists: docs.map((d) => toList(d.id, d.data() ?? {})) }));
     watch("meta", (docs) => ({ settings: toSettings(docs.find((d) => d.id === "settings")?.data()) }));
   }
@@ -92,7 +92,7 @@ export function createStore(db: Db | null) {
     if (name === "meta") return fromSettings(state.settings);
     if (name === "recipes") return state.recipes.find((r) => r.id === id) as unknown as Doc | undefined ?? null;
     if (name === "lists") return state.lists.find((l) => l.id === id) as unknown as Doc | undefined ?? null;
-    return state.days.find((d) => d.date === id) as unknown as Doc | undefined ?? null;
+    return state.weeks.find((w) => w.weekStart === id) as unknown as Doc | undefined ?? null;
   };
   const putLocal = (name: CollectionName, id: string, doc: Doc | null) => {
     if (name === "meta") {
@@ -104,8 +104,8 @@ export function createStore(db: Db | null) {
       const rest = state.lists.filter((l) => l.id !== id);
       set({ lists: doc ? [...rest, toList(id, doc)] : rest });
     } else {
-      const rest = state.days.filter((d) => d.date !== id);
-      set({ days: doc ? [...rest, toPlanDay(id, doc)] : rest });
+      const rest = state.weeks.filter((w) => w.weekStart !== id);
+      set({ weeks: doc ? [...rest, toWeekPlan(id, doc)] : rest });
     }
   };
 
@@ -154,20 +154,30 @@ export function createStore(db: Db | null) {
       return (await write("recipes", id, () => data)) ? id : null;
     },
 
-    /** Removes the recipe and every planned meal that used it (the Next app does this with a DB cascade). */
+    /** Removes the food and takes it off every week it was chosen for. */
     async deleteRecipe(id: string) {
-      for (const day of state.days.filter((d) => d.entries.some((e) => e.recipeId === id))) {
-        await store.updateDay(day.date, (d) => dropRecipe(d ?? day, id));
+      for (const week of state.weeks.filter((w) => w.picks.some((p) => p.recipeId === id))) {
+        await store.updateWeek(week.weekStart, (cur) => dropRecipeFromWeek(cur ?? week, id));
       }
       await write("recipes", id, () => null);
     },
 
-    /** Edits one day of the plan. A day left with no meals is deleted rather than stored empty. */
-    updateDay: (date: string, edit: (day: PlanDay | undefined) => PlanDay) =>
-      write("plan", date, () => {
-        const next = edit(state.days.find((d) => d.date === date));
-        return next.entries.length ? { entries: next.entries } : null;
+    /** Edits the foods chosen for one week. A week with nothing chosen and no list started is deleted, not stored empty. */
+    updateWeek: (weekStart: string, edit: (week: WeekPlan | undefined) => WeekPlan) =>
+      write("week", weekStart, () => {
+        const next = edit(state.weeks.find((w) => w.weekStart === weekStart));
+        return isEmptyWeek(next) ? null : { picks: next.picks, listId: next.listId };
       }),
+
+    /**
+     * Saves a shopping list made from a week's foods and remembers it on that week. Resolves the list id, or
+     * null if it could not be saved (the week is then left as it was).
+     */
+    async startShopping(weekStart: string, list: Omit<ShoppingList, "id">): Promise<string | null> {
+      const id = await store.createList(list);
+      if (id) await store.updateWeek(weekStart, (cur) => ({ ...(cur ?? { weekStart, picks: [] }), listId: id }));
+      return id;
+    },
 
     /** Resolves the new list's id, or null if it could not be saved. */
     async createList(list: Omit<ShoppingList, "id">): Promise<string | null> {

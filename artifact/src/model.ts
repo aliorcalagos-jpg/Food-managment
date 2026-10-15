@@ -2,10 +2,8 @@
 // Nothing here touches the db or the DOM, so it is all unit-testable.
 import type { Ingredient } from "../../lib/ingredients";
 import { buildListItems } from "../../lib/list-build";
-import type { MealTypeName } from "../../lib/meals";
 import { DEFAULT_RATE, isCurrency, MAX_KOBO, type Currency } from "../../lib/money";
-import type { Lang, Msg } from "./i18n";
-import { addDays, parseISODate, toISODate } from "../../lib/week";
+import type { Lang } from "./i18n";
 
 export type { Ingredient };
 
@@ -19,8 +17,10 @@ export type Recipe = {
   ingredients: Ingredient[];
 };
 
-export type PlanEntry = { id: string; mealType: MealTypeName; recipeId: string; servings: number };
-export type PlanDay = { date: string; entries: PlanEntry[] };
+/** One food chosen for a week, and how many servings of it to cook. */
+export type Pick = { recipeId: string; servings: number };
+/** The foods chosen for one Monday-to-Sunday week, and the shopping list started from them (if any). */
+export type WeekPlan = { weekStart: string; picks: Pick[]; listId: string | null };
 
 export type ListItem = {
   id: string;
@@ -85,19 +85,20 @@ export function toRecipe(id: string, d: Record<string, unknown>): Recipe {
   };
 }
 
-export function toPlanDay(date: string, d: Record<string, unknown>): PlanDay {
-  return {
-    date,
-    entries: arr(d.entries).map((e) => {
-      const o = obj(e);
-      return {
-        id: str(o.id),
-        mealType: str(o.mealType, "DINNER") as MealTypeName,
-        recipeId: str(o.recipeId),
-        servings: Math.max(1, Math.round(num(o.servings, 1))),
-      };
-    }),
-  };
+export function toWeekPlan(weekStart: string, d: Record<string, unknown>): WeekPlan {
+  const seen = new Set<string>();
+  const picks: Pick[] = [];
+  for (const p of arr(d.picks)) {
+    const o = obj(p);
+    const recipeId = str(o.recipeId);
+    const servings = Math.round(num(o.servings, 0));
+    // one entry per food; ignore anything that is not a usable pick
+    if (recipeId && servings >= 1 && servings <= 100 && !seen.has(recipeId)) {
+      seen.add(recipeId);
+      picks.push({ recipeId, servings });
+    }
+  }
+  return { weekStart, picks, listId: typeof d.listId === "string" && d.listId ? d.listId : null };
 }
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -144,84 +145,55 @@ export function fromSettings(s: Settings): Record<string, unknown> {
   return { ...(s.lang ? { lang: s.lang } : {}), currency: s.currency, rate: s.rate, weeklyBudget: s.weeklyBudget };
 }
 
-// ---- meal plan edits -----------------------------------------------------------------------
+// ---- the week's foods ----------------------------------------------------------------------
 
-const emptyDay = (date: string): PlanDay => ({ date, entries: [] });
+const emptyWeek = (weekStart: string): WeekPlan => ({ weekStart, picks: [], listId: null });
 
-export function addMeal(day: PlanDay | undefined, date: string, entry: PlanEntry): PlanDay {
-  const d = day ?? emptyDay(date);
-  return { ...d, entries: [...d.entries, entry] };
+/** Chooses a food for the week, changes its servings, or (servings null) takes it off. Keeps the order picked. */
+export function setPick(week: WeekPlan | undefined, weekStart: string, recipeId: string, servings: number | null): WeekPlan {
+  const w = week ?? emptyWeek(weekStart);
+  if (servings === null) return { ...w, picks: w.picks.filter((p) => p.recipeId !== recipeId) };
+  const exists = w.picks.some((p) => p.recipeId === recipeId);
+  return {
+    ...w,
+    picks: exists ? w.picks.map((p) => (p.recipeId === recipeId ? { ...p, servings } : p)) : [...w.picks, { recipeId, servings }],
+  };
 }
 
-export function setMealServings(day: PlanDay, entryId: string, servings: number): PlanDay {
-  return { ...day, entries: day.entries.map((e) => (e.id === entryId ? { ...e, servings } : e)) };
-}
+/** Removes a food from a week (used when the food is deleted). */
+export const dropRecipeFromWeek = (week: WeekPlan, recipeId: string): WeekPlan => ({ ...week, picks: week.picks.filter((p) => p.recipeId !== recipeId) });
 
-export function removeMeal(day: PlanDay, entryId: string): PlanDay {
-  return { ...day, entries: day.entries.filter((e) => e.id !== entryId) };
-}
+/** A week with nothing chosen and no list started is not worth storing. */
+export const isEmptyWeek = (w: WeekPlan) => w.picks.length === 0 && w.listId === null;
 
-/** Removes every entry for a recipe (used when the recipe is deleted). */
-export function dropRecipe(day: PlanDay, recipeId: string): PlanDay {
-  return { ...day, entries: day.entries.filter((e) => e.recipeId !== recipeId) };
+export type BuyList = {
+  /** What to buy, merged across the chosen foods and grouped later by aisle. Ids are stable for the same line. */
+  items: ListItem[];
+  /** Chosen foods that have no ingredients yet, so they add nothing to the list. */
+  skipped: string[];
+};
+
+/**
+ * What to buy for the chosen foods: each food's ingredients are scaled from the servings its recipe makes to the
+ * servings picked, then everything is merged (same name and unit add up). Picks whose food no longer exists are ignored.
+ */
+export function buildBuyList(picks: Pick[], recipes: Recipe[]): BuyList {
+  const byId = new Map(recipes.map((r) => [r.id, r]));
+  const chosen = picks.flatMap((p) => {
+    const recipe = byId.get(p.recipeId);
+    return recipe ? [{ servings: p.servings, recipe }] : [];
+  });
+  const skipped = chosen.filter((m) => m.recipe.ingredients.length === 0).map((m) => m.recipe.title);
+  const items: ListItem[] = buildListItems(chosen.filter((m) => m.recipe.ingredients.length > 0)).map((i) => ({
+    ...i,
+    id: `${i.name}|${i.unit}`,
+    checked: false,
+    price: null,
+  }));
+  return { items, skipped };
 }
 
 // ---- shopping lists ------------------------------------------------------------------------
-
-export function datesInRange(startISO: string, endISO: string): string[] {
-  const start = parseISODate(startISO);
-  const end = parseISODate(endISO);
-  if (!start || !end || end < start) return [];
-  const out: string[] = [];
-  for (let d = start; d <= end; d = addDays(d, 1)) out.push(toISODate(d));
-  return out;
-}
-
-export const MAX_LIST_RANGE_DAYS = 62;
-
-export type GenerateResult =
-  | { ok: true; list: Omit<ShoppingList, "id" | "createdAt">; skipped: string[] }
-  | { ok: false; error: Msg };
-
-/**
- * Builds a list from the planned meals in [start, end] (inclusive): scale each
- * meal's ingredients to its planned servings, merge, and tag aisles. Planned dishes that have
- * no ingredients yet are left out and reported in `skipped`, so the list never silently misses one.
- */
-export function generateList(
-  input: { name: string; start: string; end: string; shoppedOn: string },
-  recipes: Recipe[],
-  days: PlanDay[],
-): GenerateResult {
-  const start = parseISODate(input.start);
-  const end = parseISODate(input.end);
-  if (!start || !end) return { ok: false, error: { key: "errPickDates" } };
-  if (end < start) return { ok: false, error: { key: "errEndBefore" } };
-  const range = datesInRange(input.start, input.end);
-  if (range.length > MAX_LIST_RANGE_DAYS) return { ok: false, error: { key: "errRangeLong", params: { max: MAX_LIST_RANGE_DAYS } } };
-
-  const byId = new Map(recipes.map((r) => [r.id, r]));
-  const inRange = new Set(range);
-  const planned = days
-    .filter((d) => inRange.has(d.date))
-    .flatMap((d) => d.entries)
-    .flatMap((e) => {
-      const recipe = byId.get(e.recipeId);
-      return recipe ? [{ servings: e.servings, recipe }] : [];
-    });
-  if (planned.length === 0) return { ok: false, error: { key: "errNoMeals" } };
-
-  const skipped = [...new Set(planned.filter((m) => m.recipe.ingredients.length === 0).map((m) => m.recipe.title))];
-  const meals = planned.filter((m) => m.recipe.ingredients.length > 0);
-  if (meals.length === 0) return { ok: false, error: { key: "errOnlyEmptyDishes", params: { names: skipped.join(" · ") } } };
-
-  const items: ListItem[] = buildListItems(meals).map((i) => ({ ...i, id: newId(), checked: false, price: null }));
-  return {
-    ok: true,
-    skipped,
-    list: { name: input.name.trim() || `Meals ${input.start} to ${input.end}`, rangeStart: input.start, rangeEnd: input.end, shoppedOn: input.shoppedOn, items },
-  };
-}
 
 export const toggleItem = (list: ShoppingList, itemId: string, checked: boolean): ShoppingList => ({
   ...list,

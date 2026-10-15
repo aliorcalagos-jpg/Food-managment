@@ -44,7 +44,7 @@ https://claude.ai/artifact/7Y6W3zydkv5T6bH1vcgyZ9 (readable only by its owner).
 
 - Source is in `artifact/`: React 18 (pinned UMD from cdnjs) bundled with esbuild into one HTML fragment.
   It reuses the tested logic from `lib/` (ingredient merging, fractions, dates, aisle categories, list building).
-- Data lives in the artifact's own `db` (collections `recipes`, `plan` per day, `lists`), under a rule that only the
+- Data lives in the artifact's own `db` (collections `recipes`, `week` per Monday, `lists`, `meta`), under a rule that only the
   owner can read or write. Sign-in is your claude.ai account, so there is no signup, household or rate limiting here.
 - `npm run build:artifact` writes `artifact/dist/meal-planner.html`; publish that file with the Artifact tool.
 - `npm run test:artifact` runs the built page in Playwright against an in-memory fake of the `db` runtime
@@ -66,8 +66,15 @@ https://claude.ai/artifact/7Y6W3zydkv5T6bH1vcgyZ9 (readable only by its owner).
   below 80%, close to the limit from 80% or when planned items would go over, over budget above 100%), spending by
   aisle, the last 8 weeks with the budget line, and the week's trips. Settings (`meta/settings`) hold the language,
   currency, rate and budget and are always merged, never replaced. Logic: `lib/money.ts`, `artifact/src/spending.ts`.
-- A dish can be saved with just a name and given ingredients later; a list says which planned dishes it left out
-  because they have no ingredients yet.
+- This week tab (second, after Expenses): every saved food is a tap row; tap the ones you will cook, set servings with
+  the stepper (it defaults to what the recipe makes), and the *What to buy* panel updates at once, merged across foods
+  and grouped by aisle. Each week has its own selection (`week/<Monday>`: `{ picks, listId }`). *Start shopping* saves a
+  snapshot list ("Shopping <date>", with the week as its range) and remembers it on the week; later changes to the
+  selection do not alter that list, and pressing the button again makes a fresh one. Nothing is subtracted for what you
+  already have at home. Logic: `buildBuyList` in `artifact/src/model.ts` (on top of `lib/list-build.ts`).
+- A food can be saved with just a name and given ingredients later; the buy panel names the chosen foods it left out
+  because they have no ingredients yet, with a jump to add them. The Servings field means how many servings the entered
+  quantities make (default 1, one person).
 - Limits: one person, data is separate from the Postgres app, no export yet, and the 25,000-document /
   256 KiB-per-document caps of artifact storage apply.
 
