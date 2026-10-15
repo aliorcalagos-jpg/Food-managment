@@ -11,13 +11,15 @@ const seed: Seed = {
   ),
 };
 
+// Types each ingredient as one line in the ingredient sheet (opening it first if needed), then Done and Save.
 async function addIngredients(page: Page, rows: [string, string, string][]) {
-  for (const [i, [qty, unit, name]] of rows.entries()) {
-    if (i > 0) await page.getByRole("button", { name: "+ إضافة مكوّن" }).click();
-    await page.getByLabel(`الكمية ${i + 1}`, { exact: true }).fill(qty);
-    await page.getByLabel(`الوحدة ${i + 1}`, { exact: true }).fill(unit);
-    await page.getByLabel(`المكوّن ${i + 1}`, { exact: true }).fill(name);
+  const line = page.getByLabel("اكتب مكوّنًا");
+  if (!(await line.isVisible())) await page.getByRole("button", { name: "إضافة مكوّن" }).click();
+  for (const [qty, unit, name] of rows) {
+    await line.fill([qty, unit, name].filter(Boolean).join(" "));
+    await line.press("Enter");
   }
+  await page.getByRole("button", { name: "تم", exact: true }).click();
   await page.getByRole("button", { name: "حفظ الوصفة" }).click();
 }
 
@@ -120,7 +122,7 @@ test("a food with no ingredients is named, can be fixed from This week, and the 
   await expect(buy.getByText("الأطباق المختارة بلا مكوّنات بعد.")).toBeVisible();
   await expect(buy.getByRole("button", { name: "ابدأ التسوق" })).toBeDisabled();
   expect(await stored(page, "lists")).toEqual([]); // nothing half-made was saved
-  await page.locator("li.food", { hasText: "يخنة بازيلاء" }).getByRole("button", { name: "أضف المكوّنات" }).click(); // jumps to that dish's edit form
+  await page.locator("li.pick", { hasText: "يخنة بازيلاء" }).getByRole("button", { name: "أضف المكوّنات" }).click(); // jumps to that dish's edit form
   await expect(page.getByLabel("الاسم", { exact: true })).toHaveValue(/^يخنة/);
 });
 

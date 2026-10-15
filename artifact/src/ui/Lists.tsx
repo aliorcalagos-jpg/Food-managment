@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import { currencySymbol, editableAmount, parseMoney } from "../../../lib/money";
 import { categorize } from "../../../lib/categories";
 import { groupItems } from "../../../lib/list-build";
+import { parseIngredientLine } from "../../../lib/ingredient-line";
 import { parseQuantity } from "../../../lib/quantity";
 import { formatRange, parseISODate } from "../../../lib/week";
 import { aisleLabel, useI18n, type Msg } from "../i18n";
@@ -52,7 +53,29 @@ function ListIndex({ store, lists, onOpen }: { store: Store; lists: ShoppingList
     <section aria-labelledby="lists-h" className="stack">
       <h2 id="lists-h">{t("listsH")}</h2>
 
-      <p className="muted">{t("listsHint")}</p>
+      {sorted.length === 0 ? (
+        <Empty title={t("noLists")}>{t("noListsHint")}</Empty>
+      ) : (
+        <ul className="list-cards">
+          {sorted.map((l) => {
+            const done = l.items.filter((i) => i.checked).length;
+            return (
+              <li key={l.id}>
+                <button type="button" className="list-card" onClick={() => onOpen(l.id)}>
+                  <span className="list-card-top">
+                    <bdi className="row-title">{l.name}</bdi>
+                    <span className="muted num">{t("progress", { done, total: l.items.length })}</span>
+                  </span>
+                  {l.rangeStart && l.rangeEnd && <span className="muted num">{formatRange(parseISODate(l.rangeStart)!, parseISODate(l.rangeEnd)!, lang)}</span>}
+                  <span className="progress" aria-hidden="true">
+                    <span className="progress-fill" style={{ display: "block", width: `${l.items.length ? (done / l.items.length) * 100 : 0}%` }} />
+                  </span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
 
       <form onSubmit={createBlank} className="inline-form">
         <label className="sr-only" htmlFor="blank-name">
@@ -63,37 +86,16 @@ function ListIndex({ store, lists, onOpen }: { store: Store; lists: ShoppingList
           {t("create")}
         </button>
       </form>
-
-      {sorted.length === 0 ? (
-        <Empty title={t("noLists")}>{t("noListsHint")}</Empty>
-      ) : (
-        <ul className="rows">
-          {sorted.map((l) => {
-            const done = l.items.filter((i) => i.checked).length;
-            return (
-              <li key={l.id}>
-                <button type="button" className="row-btn" onClick={() => onOpen(l.id)}>
-                  <span className="row-title">
-                    <bdi>{l.name}</bdi>
-                    {l.rangeStart && l.rangeEnd && (
-                      <span className="muted num"> · {formatRange(parseISODate(l.rangeStart)!, parseISODate(l.rangeEnd)!, lang)}</span>
-                    )}
-                  </span>
-                  <span className="muted num">{t("progress", { done, total: l.items.length })}</span>
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      )}
+      <p className="muted hint">{t("listsHint")}</p>
     </section>
   );
 }
 
 function ListDetail({ store, list, onBack }: { store: Store; list: ShoppingList | undefined; onBack: () => void }) {
   const { t, lang } = useI18n();
-  const [item, setItem] = useState({ quantity: "", unit: "", name: "" });
+  const [line, setLine] = useState("");
   const [error, setError] = useState<Msg | null>(null);
+  const [basketOpen, setBasketOpen] = useState(true);
 
   if (!list) {
     return (
@@ -106,101 +108,134 @@ function ListDetail({ store, list, onBack }: { store: Store; list: ShoppingList 
   }
 
   const done = list.items.filter((i) => i.checked).length;
+  const total = list.items.length;
   const totals = listTotals(list);
   const update = (edit: (l: ShoppingList) => ShoppingList) => store.updateList(list.id, edit);
+  const pending = list.items.filter((i) => !i.checked);
+  const basket = list.items.filter((i) => i.checked);
 
   function add(e: React.FormEvent) {
     e.preventDefault();
-    const name = item.name.trim();
+    if (!line.trim()) return;
+    const f = parseIngredientLine(line);
+    const name = f.name.trim();
     if (!name) return setError({ key: "errItemName" });
-    const quantity = item.quantity.trim() === "" ? 1 : parseQuantity(item.quantity);
+    const quantity = f.quantity === "" ? 1 : parseQuantity(f.quantity);
     if (quantity === null || quantity > 100000) return setError({ key: "errItemQty" });
     setError(null);
-    void update((l) => addItem(l, { name, quantity, unit: item.unit.trim(), category: categorize(name) }));
-    setItem({ quantity: "", unit: "", name: "" });
+    void update((l) => addItem(l, { name, quantity, unit: f.unit, category: categorize(name) }));
+    setLine("");
   }
+
+  const row = (i: ShoppingList["items"][number]) => (
+    <li key={i.id} className="item">
+      <ItemCheck checked={i.checked} label={<ItemLabel quantity={i.quantity} unit={i.unit} name={i.name} />} onChange={(next) => update((l) => toggleItem(l, i.id, next))} />
+      <PriceInput id={i.id} name={i.name} price={i.price} onCommit={(p) => void update((l) => setItemPrice(l, i.id, p))} />
+      <button type="button" className="icon-btn" aria-label={t("removeItem", { name: i.name })} onClick={() => void update((l) => removeItem(l, i.id))}>
+        ✕
+      </button>
+    </li>
+  );
 
   return (
     <section className="stack">
-      <button type="button" className="link" onClick={onBack}>
+      <button type="button" className="back" onClick={onBack}>
         <Arrow /> {t("backToLists")}
       </button>
-      <div className="page-head">
+      <div className="stack" style={{ gap: 10 }}>
         <h2 dir="auto">{list.name}</h2>
-        <ConfirmAction
-          label={t("deleteList")}
-          confirmLabel={t("deleteListConfirm")}
-          onConfirm={async () => {
-            await store.deleteList(list.id);
-            onBack();
-          }}
-        />
-      </div>
-      <p className="muted num">
-        {list.rangeStart && list.rangeEnd && <>{formatRange(parseISODate(list.rangeStart)!, parseISODate(list.rangeEnd)!, lang)} · </>}
-        <span aria-live="polite">{t("progress", { done, total: list.items.length })}</span>
-      </p>
-
-      <div className="trip-meta">
-        <div className="field">
-          <label htmlFor="shopped-on">{t("shoppedOn")}</label>
-          <input id="shopped-on" type="date" value={list.shoppedOn} onChange={(e) => {
-            // read the value now: the update runs later, after React has reset this controlled input
-            const date = e.target.value;
-            if (date) void update((l) => setShoppedOn(l, date));
-          }} />
+        <p className="muted num">
+          {list.rangeStart && list.rangeEnd && <>{formatRange(parseISODate(list.rangeStart)!, parseISODate(list.rangeEnd)!, lang)} · </>}
+          <span aria-live="polite">{t("progress", { done, total })}</span>
+        </p>
+        <div className="progress" aria-hidden="true">
+          <div className="progress-fill" style={{ width: `${total ? (done / total) * 100 : 0}%` }} />
         </div>
-        {(totals.spent > 0 || totals.planned > 0) && (
-          <p className="totals num">
-            {t("boughtTotal")} <Money kobo={totals.spent} withOther />
-            {totals.planned > 0 && (
-              <>
-                {" · "}
-                {t("plannedTotal")} <Money kobo={totals.planned} />
-              </>
-            )}
-            {totals.unpriced > 0 && <span className="muted"> · {totals.unpriced === 1 ? t("unpricedOne") : t("unpricedN", { n: totals.unpriced })}</span>}
-          </p>
-        )}
       </div>
 
       <form onSubmit={add} className="add-item" noValidate>
-        <label className="sr-only" htmlFor="item-qty">{t("itemQty")}</label>
-        <input id="item-qty" inputMode="decimal" placeholder="1" value={item.quantity} onChange={(e) => setItem({ ...item, quantity: e.target.value })} />
-        <label className="sr-only" htmlFor="item-unit">{t("itemUnit")}</label>
-        <input id="item-unit" dir="auto" placeholder={t("phUnit")} value={item.unit} onChange={(e) => setItem({ ...item, unit: e.target.value })} />
-        <label className="sr-only" htmlFor="item-name">{t("itemName")}</label>
-        <input id="item-name" dir="auto" placeholder={t("phItemName")} value={item.name} onChange={(e) => setItem({ ...item, name: e.target.value })} />
-        <button type="submit" className="btn primary">{t("add")}</button>
+        <label className="sr-only" htmlFor="item-line">
+          {t("itemLineLabel")}
+        </label>
+        <input id="item-line" dir="auto" placeholder={t("phItemLine")} value={line} onChange={(e) => setLine(e.target.value)} />
+        <button type="submit" className="btn primary">
+          {t("add")}
+        </button>
       </form>
       <FieldError id="item-err" msg={error} />
 
-      {list.items.length === 0 && <Empty title={t("listEmpty")}>{t("listEmptyHint")}</Empty>}
+      {total === 0 && <Empty title={t("listEmpty")}>{t("listEmptyHint")}</Empty>}
 
-      {groupItems(list.items).map((g) => (
+      {groupItems(pending).map((g) => (
         <section key={g.category} aria-label={aisleLabel(lang, g.category)} className="aisle">
           <h3 className="aisle-title">{aisleLabel(lang, g.category)}</h3>
-          <ul className="rows tight">
-            {g.items.map((i) => (
-              <li key={i.id} className="item">
-                <ItemCheck
-                  checked={i.checked}
-                  label={<ItemLabel quantity={i.quantity} unit={i.unit} name={i.name} />}
-                  onChange={(next) => update((l) => toggleItem(l, i.id, next))}
-                />
-                <PriceInput id={i.id} name={i.name} price={i.price} onCommit={(p) => void update((l) => setItemPrice(l, i.id, p))} />
-                <button type="button" className="icon-btn" aria-label={t("removeItem", { name: i.name })} onClick={() => void update((l) => removeItem(l, i.id))}>
-                  ✕
-                </button>
-              </li>
-            ))}
-          </ul>
+          <ul className="items">{g.items.map(row)}</ul>
         </section>
       ))}
 
-      {done > 0 && (
-        <ConfirmAction label={done === 1 ? t("clearChecked1") : t("clearCheckedN", { n: done })} confirmLabel={t("clearCheckedConfirm")} className="link" onConfirm={() => void update(clearChecked)} />
+      {basket.length > 0 && (
+        <section className="aisle" aria-label={t("basketH", { n: basket.length })}>
+          <button type="button" className="basket-toggle" aria-expanded={basketOpen} onClick={() => setBasketOpen((o) => !o)}>
+            <span aria-hidden="true">{basketOpen ? "▾" : "▸"}</span> {t("basketH", { n: basket.length })}
+          </button>
+          {basketOpen && <ul className="items">{basket.map(row)}</ul>}
+        </section>
       )}
+
+      <details className="more">
+        <summary>{t("moreH")}</summary>
+        <div className="stack">
+          <div className="field">
+            <label htmlFor="shopped-on">{t("shoppedOn")}</label>
+            <input
+              id="shopped-on"
+              type="date"
+              value={list.shoppedOn}
+              onChange={(e) => {
+                // read the value now: the update runs later, after React has reset this controlled input
+                const date = e.target.value;
+                if (date) void update((l) => setShoppedOn(l, date));
+              }}
+            />
+          </div>
+          {done > 0 && (
+            <div>
+              <ConfirmAction label={done === 1 ? t("clearChecked1") : t("clearCheckedN", { n: done })} confirmLabel={t("clearCheckedConfirm")} className="btn ghost" onConfirm={() => void update(clearChecked)} />
+            </div>
+          )}
+          <div>
+            <ConfirmAction
+              label={t("deleteList")}
+              confirmLabel={t("deleteListConfirm")}
+              className="btn ghost"
+              onConfirm={async () => {
+                await store.deleteList(list.id);
+                onBack();
+              }}
+            />
+          </div>
+        </div>
+      </details>
+
+      <div className="sticky-bar">
+        <div className="sticky-in">
+          <p className="trip-bar num" aria-live="polite">
+            <strong>
+              {t("boughtTotal")} <Money kobo={totals.spent} withOther />
+            </strong>
+            <span>
+              {totals.planned > 0 && (
+                <>
+                  {t("plannedTotal")} <Money kobo={totals.planned} />
+                  {" · "}
+                </>
+              )}
+              {totals.unpriced > 0 ? (totals.unpriced === 1 ? t("unpricedOne") : t("unpricedN", { n: totals.unpriced })) : totals.spent + totals.planned === 0 ? t("priceHint") : ""}
+            </span>
+          </p>
+        </div>
+      </div>
+      <div style={{ height: 72 }} aria-hidden="true" />
     </section>
   );
 }

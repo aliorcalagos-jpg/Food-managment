@@ -36,25 +36,27 @@ export function Expenses({
 
   return (
     <section aria-labelledby="exp-h" className="stack">
-      <div className="page-head">
-        <h2 id="exp-h">{t("expensesH")}</h2>
-        <nav aria-label={t("weekNavExpenses")} className="weeknav">
-          <button type="button" className="link" onClick={() => move(-7)}>
-            <Arrow /> {t("prev")}
-          </button>
+      <h2 id="exp-h" className="sr-only">
+        {t("expensesH")}
+      </h2>
+      <nav aria-label={t("weekNavExpenses")} className="week-bar">
+        <button type="button" className="week-btn" aria-label={t("prev")} onClick={() => move(-7)}>
+          <Arrow />
+        </button>
+        <div className="week-mid">
           <span className="week-range num" aria-live="polite">
             {formatWeekRange(start, lang)}
           </span>
-          <button type="button" className="link" onClick={() => move(7)}>
-            {t("next")} <Arrow forward />
-          </button>
           {week !== thisWeek && (
-            <button type="button" className="link" onClick={() => setWeek(thisWeek)}>
+            <button type="button" className="week-now" onClick={() => setWeek(thisWeek)}>
               {t("thisWeek")}
             </button>
           )}
-        </nav>
-      </div>
+        </div>
+        <button type="button" className="week-btn" aria-label={t("next")} onClick={() => move(7)}>
+          <Arrow forward />
+        </button>
+      </nav>
 
       {!anyPrices ? (
         <div className="card">

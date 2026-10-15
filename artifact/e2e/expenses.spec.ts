@@ -15,15 +15,15 @@ const openSettings = async (page: Page) => {
 };
 
 test("empty state, then a first priced trip from scratch", async ({ page }) => {
-  await openArtifact(page, { today: TODAY, tab: null }); // opens on Expenses by default
-  await expect(page.getByRole("button", { name: "Expenses" })).toHaveAttribute("aria-current", "page");
+  await openArtifact(page, { today: TODAY, tab: "expenses" }); // opened from the Spending tab
+  await expect(page.getByRole("button", { name: "Spending" })).toHaveAttribute("aria-current", "page");
   await expect(page.getByText("No prices yet")).toBeVisible();
 
   await page.getByRole("button", { name: "Start a shopping trip" }).click();
   await expect(page.getByRole("heading", { name: "Shopping 2026-10-14" })).toBeVisible();
   await expect(page.getByLabel("Shopped on")).toHaveValue(TODAY);
 
-  await page.getByLabel("Item name").fill("rice");
+  await page.getByLabel("Add an item").fill("rice");
   await page.getByRole("button", { name: "Add", exact: true }).click();
   await expect(page.getByLabel("1 rice")).toBeVisible();
 
@@ -37,7 +37,7 @@ test("empty state, then a first priced trip from scratch", async ({ page }) => {
   await page.getByLabel("1 rice").check();
   await expect(page.getByText(/Bought ₦2,500/)).toBeVisible();
 
-  await page.getByRole("button", { name: "Expenses" }).click();
+  await page.getByRole("button", { name: "Spending" }).click();
   await expect(page.locator(".hero")).toHaveText("₦2,500");
   await expect(page.getByText("≈ $1.81").first()).toBeVisible(); // 2500 / 1380
   await expect(page.getByText(/No weekly budget yet/)).toBeVisible();
@@ -53,7 +53,7 @@ for (const [name, spent, planned, label, extra] of [
 ] as const) {
   test(`budget status: ${name}`, async ({ page }) => {
     const items = [{ name: "bought", price: NAIRA(spent), checked: true }, ...(planned ? [{ name: "planned", price: NAIRA(planned), checked: false }] : [])];
-    await openArtifact(page, { today: TODAY, tab: null, seed: merge(settings(100000), lists(seedList("trip", "2026-10-13", items, "Market"))) });
+    await openArtifact(page, { today: TODAY, tab: "expenses", seed: merge(settings(100000), lists(seedList("trip", "2026-10-13", items, "Market"))) });
     await expect(status(page)).toContainText(label);
     if (extra) await expect(page.locator(".hero-card")).toContainText(new RegExp(extra.replace(/ ₦/, "\\s*₦")));
     const meter = page.getByRole("progressbar", { name: "Weekly budget" });
@@ -73,28 +73,29 @@ test("which week a list counts in: Sunday and Monday, and moving the shopping da
       seedList("next", "2026-10-19", [{ name: "x", price: NAIRA(33333), checked: true }], "Next Monday"), // next week
     ),
   );
-  await openArtifact(page, { today: TODAY, tab: null, seed });
+  await openArtifact(page, { today: TODAY, tab: "expenses", seed });
   await expect(page.locator(".hero")).toHaveText("₦3,000"); // Monday + Sunday only
   await expect(page.locator(".hero-card")).toContainText("Oct 12 – Oct 18, 2026");
 
   // open a trip from the Expenses tab and move it to next week
   await page.getByRole("button", { name: /Monday shop/ }).click();
   await expect(page.getByRole("heading", { name: "Monday shop" })).toBeVisible();
+  await page.getByText("More", { exact: true }).click();
   await page.getByLabel("Shopped on").fill("2026-10-20");
-  await page.getByRole("button", { name: "Expenses" }).click();
+  await page.getByRole("button", { name: "Spending" }).click();
   await expect(page.locator(".hero")).toHaveText("₦2,000");
   await page.getByRole("button", { name: /Next/ }).click();
   await expect(page.locator(".hero")).toHaveText("₦34,333"); // Next Monday + the moved trip
 });
 
 test("USD: prices typed in dollars convert once at 1380; display switches; the budget does not drift", async ({ page }) => {
-  await openArtifact(page, { today: TODAY, tab: null, seed: merge(settings(10000), lists(seedList("t", "2026-10-13", [{ name: "oil", price: null, checked: true }], "Market"))) });
+  await openArtifact(page, { today: TODAY, tab: "expenses", seed: merge(settings(10000), lists(seedList("t", "2026-10-13", [{ name: "oil", price: null, checked: true }], "Market"))) });
   // a list with no prices yet is not on the Expenses tab, so go through Lists; the currency is chosen on Expenses
-  await page.getByRole("button", { name: "Expenses" }).click();
+  await page.getByRole("button", { name: "Spending" }).click();
   await openSettings(page);
   await page.getByRole("button", { name: "US dollar ($)" }).click();
   await expect(page.getByText("No prices yet")).toBeVisible();
-  await page.getByRole("button", { name: "Lists" }).click();
+  await page.getByRole("button", { name: "Shopping", exact: true }).click();
   await page.getByRole("button", { name: /Market/ }).click();
 
   await page.getByLabel("Price for oil").fill("$2");
@@ -102,7 +103,7 @@ test("USD: prices typed in dollars convert once at 1380; display switches; the b
   await expect.poll(async () => ((await stored(page, "lists"))[0].items as { price: number }[])[0].price).toBe(276000); // 2 * 1380 * 100
   await expect(page.getByLabel("Price for oil")).toHaveValue("2");
 
-  await page.getByRole("button", { name: "Expenses" }).click();
+  await page.getByRole("button", { name: "Spending" }).click();
   await expect(page.locator(".hero")).toHaveText("$2.00"); // the oil line is ticked, so it counts as spent
   await expect(page.getByText("≈ ₦2,760").first()).toBeVisible();
 
@@ -119,8 +120,8 @@ test("USD: prices typed in dollars convert once at 1380; display switches; the b
 });
 
 test("bad amounts are refused, never saved as something else", async ({ page }) => {
-  await openArtifact(page, { today: TODAY, tab: null, seed: merge(settings(null), lists(seedList("t", "2026-10-13", [{ name: "oil", price: null, checked: true }], "Market"))) });
-  await page.getByRole("button", { name: "Expenses" }).click();
+  await openArtifact(page, { today: TODAY, tab: "expenses", seed: merge(settings(null), lists(seedList("t", "2026-10-13", [{ name: "oil", price: null, checked: true }], "Market"))) });
+  await page.getByRole("button", { name: "Spending" }).click();
   await page.getByLabel(/Weekly budget/).fill("lots");
   await page.getByRole("button", { name: "Save" }).click();
   await expect(page.getByText("Enter an amount like 2500 or 2,500.50")).toBeVisible();
@@ -129,7 +130,7 @@ test("bad amounts are refused, never saved as something else", async ({ page }) 
   await page.getByRole("button", { name: "Save" }).click();
   await expect(page.getByText("Enter a rate above 0")).toBeVisible();
 
-  await page.getByRole("button", { name: "Lists" }).click();
+  await page.getByRole("button", { name: "Shopping", exact: true }).click();
   await page.getByRole("button", { name: /Market/ }).click();
   await page.getByLabel("Price for oil").fill("-5");
   await page.getByLabel("Price for oil").blur();
@@ -148,7 +149,7 @@ test("the charts are drawn to scale", async ({ page }) => {
       seedList("w8", "2026-10-14", [{ name: "x", price: NAIRA(6000), checked: true, category: "Produce" }, { name: "y", price: NAIRA(2000), checked: true, category: "Meat & fish" }]),
     ),
   );
-  await openArtifact(page, { today: TODAY, tab: null, seed });
+  await openArtifact(page, { today: TODAY, tab: "expenses", seed });
 
   const cols = page.locator(".col");
   await expect(cols).toHaveCount(8);
@@ -190,7 +191,7 @@ test("Arabic: right-to-left, amounts stay left-to-right, and the language switch
     { meta: { settings: { lang: "ar", currency: "NGN", rate: 1380, weeklyBudget: NAIRA(100000) } } },
     lists(seedList("t", "2026-10-13", [{ name: "أرز", price: NAIRA(85000), checked: true, category: "Pantry" }, { name: "دجاج", price: NAIRA(9000), checked: false, category: "Meat & fish" }], "سوق السبت")),
   );
-  await openArtifact(page, { today: TODAY, tab: null, seed, lang: "ar" });
+  await openArtifact(page, { today: TODAY, tab: "expenses", seed, lang: "ar" });
   await expect(page.locator("html")).toHaveAttribute("dir", "rtl");
   await expect(page.getByRole("heading", { name: "مصروف الطعام" })).toBeVisible();
   await expect(status(page)).toContainText("قريب من الحد"); // 85% of the budget
@@ -209,12 +210,12 @@ test("Arabic: right-to-left, amounts stay left-to-right, and the language switch
   await page.getByRole("button", { name: "اللغة" }).click();
   await expect(page.locator("html")).toHaveAttribute("lang", "en");
   await expect.poll(async () => (await stored(page, "meta"))[0]).toEqual({ lang: "en", currency: "NGN", rate: 1380, weeklyBudget: NAIRA(100000) });
-  await page.getByRole("button", { name: "Expenses" }).click();
+  await page.getByRole("button", { name: "Spending" }).click();
   await expect(page.getByRole("progressbar", { name: "Weekly budget" })).toBeVisible();
 });
 
 test("settings survive a reload", async ({ page }) => {
-  await openArtifact(page, { today: TODAY, tab: null, seed: lists(seedList("t", "2026-10-13", [{ name: "x", price: NAIRA(1000), checked: true }])) });
+  await openArtifact(page, { today: TODAY, tab: "expenses", seed: lists(seedList("t", "2026-10-13", [{ name: "x", price: NAIRA(1000), checked: true }])) });
   await page.getByLabel(/Weekly budget/).fill("50,000");
   await page.getByRole("button", { name: "Save" }).click();
   await expect(page.getByRole("status")).toHaveText("Saved");

@@ -3,17 +3,17 @@ import { DEFAULT_LANG, I18nContext, makeI18n, type Lang } from "../i18n";
 import { MoneyContext } from "../money-context";
 import { todayISO } from "../today";
 import { useStore, type Store } from "../store";
-import { Empty } from "./common";
+import { Empty, Icon } from "./common";
 import { Expenses } from "./Expenses";
 import { Lists } from "./Lists";
 import { Recipes } from "./Recipes";
 import { Week } from "./Week";
 
 const TABS = [
-  { id: "expenses", label: "tabExpenses" },
-  { id: "week", label: "tabWeek" },
-  { id: "recipes", label: "tabRecipes" },
-  { id: "lists", label: "tabLists" },
+  { id: "week", label: "tabWeek", icon: "week" },
+  { id: "recipes", label: "tabRecipes", icon: "foods" },
+  { id: "lists", label: "tabLists", icon: "shopping" },
+  { id: "expenses", label: "tabExpenses", icon: "spending" },
 ] as const;
 type Tab = (typeof TABS)[number]["id"];
 const TAB_KEY = "meal-planner:tab";
@@ -27,7 +27,7 @@ function readTab(): Tab {
   } catch {
     /* storage unavailable */
   }
-  return "expenses";
+  return "week";
 }
 function readLocalLang(): Lang | null {
   try {
@@ -78,15 +78,19 @@ export function App({ store }: { store: Store }) {
     choose("lists");
   };
   // Jumping from a food with no ingredients on This week opens its edit form.
-  const [edit, setEdit] = useState<{ id: string | null; key: number }>({ id: null, key: 0 });
+  const [edit, setEdit] = useState<{ id: string | null; key: number; isNew?: boolean }>({ id: null, key: 0 });
   const editRecipe = (id: string) => {
     setEdit((e) => ({ id, key: e.key + 1 }));
+    choose("recipes");
+  };
+  const newFood = () => {
+    setEdit((e) => ({ id: null, key: e.key + 1, isNew: true }));
     choose("recipes");
   };
   const startTrip = async () => {
     const date = todayISO();
     const id = await store.createList({
-      name: i18n.t("tripDefaultName", { date }),
+      name: i18n.t("tripDefaultName", { date: lang === "ar" ? `\u2066${date}\u2069` : date }),
       rangeStart: null,
       rangeEnd: null,
       createdAt: new Date().toISOString(),
@@ -108,13 +112,6 @@ export function App({ store }: { store: Store }) {
               {t("switchTo")}
             </button>
           </div>
-          <nav className="tabs" aria-label={t("sections")}>
-            {TABS.map((x) => (
-              <button key={x.id} type="button" className="tab" aria-current={tab === x.id ? "page" : undefined} onClick={() => choose(x.id)}>
-                {t(x.label)}
-              </button>
-            ))}
-          </nav>
         </header>
 
         {state.error && state.status !== "unavailable" && (
@@ -133,11 +130,24 @@ export function App({ store }: { store: Store }) {
             <Expenses store={store} lists={state.lists} settings={state.settings} onOpenList={openList} onStartTrip={() => void startTrip()} />
           )}
           {state.status === "ready" && tab === "week" && (
-            <Week store={store} recipes={state.recipes} weeks={state.weeks} lists={state.lists} onEditRecipe={editRecipe} onOpenList={openList} />
+            <Week store={store} recipes={state.recipes} weeks={state.weeks} lists={state.lists} onEditRecipe={editRecipe} onOpenList={openList} onNewFood={newFood} />
           )}
-          {state.status === "ready" && tab === "recipes" && <Recipes key={edit.key} store={store} recipes={state.recipes} initialEditId={edit.id} />}
+          {state.status === "ready" && tab === "recipes" && <Recipes key={edit.key} store={store} recipes={state.recipes} initialEditId={edit.id} startNew={edit.isNew} />}
           {state.status === "ready" && tab === "lists" && <Lists key={open.key} store={store} lists={state.lists} initialListId={open.id} />}
         </main>
+
+        <nav className="bottom-nav" aria-label={t("sections")}>
+          <div className="bottom-nav-in">
+            {TABS.map((x) => (
+              <button key={x.id} type="button" className="nav-btn" aria-current={tab === x.id ? "page" : undefined} onClick={() => choose(x.id)}>
+                <span className="nav-ico">
+                  <Icon name={x.icon} />
+                </span>
+                {t(x.label)}
+              </button>
+            ))}
+          </div>
+        </nav>
       </div>
      </MoneyContext.Provider>
     </I18nContext.Provider>

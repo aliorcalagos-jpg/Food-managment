@@ -50,6 +50,11 @@ https://claude.ai/artifact/7Y6W3zydkv5T6bH1vcgyZ9 (readable only by its owner).
 - `npm run test:artifact` runs the built page in Playwright against an in-memory fake of the `db` runtime
   (`artifact/e2e/harness.ts`), including slow and failing saves. The pinned React copies in
   `artifact/test/vendor/` exist only to answer the page's cdnjs requests offline.
+- Layout: phone first. A bottom bar switches between **This week** (the home screen), **Foods**, **Shopping** and
+  **Spending**. Foods are tap cards with a servings stepper; on a phone a sticky bar shows "N foods · M items" with
+  *Start shopping* and opens the what-to-buy sheet, on a wide screen the list sits beside the foods. Ingredients are added
+  in a sheet (type a line, see the live preview, or tap quantity and unit chips); shopping lists have big round ticks, an
+  "In the basket" group, price pills and a sticky Bought/Planned total.
 - Arabic and English: a switch in the header (default Arabic, right-to-left; the choice is saved in the artifact `db`
   as `meta/settings`, so every device agrees). UI text lives in `artifact/src/i18n.ts` (a test keeps both tables in
   step). Stored data keeps English keys (`DINNER`, `Produce`, `kg`), so nothing depends on the language.
@@ -58,7 +63,7 @@ https://claude.ai/artifact/7Y6W3zydkv5T6bH1vcgyZ9 (readable only by its owner).
   equivalents, Arabic digits (٢) and the comma (،) are accepted, and aisles are guessed from Arabic names. Matching is
   deliberately simple: no plurals or word roots, so two different spellings of the same word (e.g. بامية / بامياء)
   stay separate lines.
-- Food spending (Expenses tab, shown first): prices live on shopping-list items and everything is computed from the
+- Food spending (Spending tab): prices live on shopping-list items and everything is computed from the
   lists, so there is no separate expense log. A price is the cost of the whole line, typed in naira or US dollars at a
   fixed rate (default 1380 NGN per USD; amounts are stored as whole naira kobo, so USD is only a display and entry
   convenience). Ticked priced items count as *spent*, unticked priced items as *planned*. A list counts towards the
@@ -66,13 +71,13 @@ https://claude.ai/artifact/7Y6W3zydkv5T6bH1vcgyZ9 (readable only by its owner).
   below 80%, close to the limit from 80% or when planned items would go over, over budget above 100%), spending by
   aisle, the last 8 weeks with the budget line, and the week's trips. Settings (`meta/settings`) hold the language,
   currency, rate and budget and are always merged, never replaced. Logic: `lib/money.ts`, `artifact/src/spending.ts`.
-- This week tab (second, after Expenses): every saved food is a tap row; tap the ones you will cook, set servings with
+- This week tab (the home screen): every saved food is a tap row; tap the ones you will cook, set servings with
   the stepper (it defaults to what the recipe makes), and the *What to buy* panel updates at once, merged across foods
   and grouped by aisle. Each week has its own selection (`week/<Monday>`: `{ picks, listId }`). *Start shopping* saves a
   snapshot list ("Shopping <date>", with the week as its range) and remembers it on the week; later changes to the
   selection do not alter that list, and pressing the button again makes a fresh one. Nothing is subtracted for what you
   already have at home. Logic: `buildBuyList` in `artifact/src/model.ts` (on top of `lib/list-build.ts`).
-- Adding ingredients: type a line in the quick-add box ("2 كوب أرز", "500g flour", "1 1/2 cups of milk") and press Enter to
+- Adding ingredients: type a line in the ingredient sheet ("2 كوب أرز", "500g flour", "1 1/2 cups of milk") and press Enter to
   get a filled, editable row; paste a whole list to add every line. Parsing lives in `lib/ingredient-line.ts` (shared):
   Arabic digits, `½`, decimal commas, attached units and two-word units are understood, an unknown unit word stays in the
   name, and a line without a number leaves the quantity empty (nothing is guessed). Enter in a row's name box starts the

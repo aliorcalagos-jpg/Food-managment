@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { formatMoney } from "../../../lib/money";
 import { formatQuantity } from "../../../lib/quantity";
 import { useMoney } from "../money-context";
@@ -109,5 +109,105 @@ export function Money({ kobo, withOther = false, onlyOther = false }: { kobo: nu
         </small>
       )}
     </>
+  );
+}
+
+const WIDE = "(min-width: 900px)";
+/** True on screens wide enough to show the what-to-buy list beside the foods instead of in a sheet. */
+export function useWide(): boolean {
+  return useSyncExternalStore(
+    (cb) => {
+      const m = window.matchMedia(WIDE);
+      m.addEventListener("change", cb);
+      return () => m.removeEventListener("change", cb);
+    },
+    () => window.matchMedia(WIDE).matches,
+    () => true,
+  );
+}
+
+/** A bottom sheet (a centred dialog on wide screens). Escape or a tap outside closes it; focus returns where it was. */
+export function Sheet({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+  const { t } = useI18n();
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const before = document.activeElement as HTMLElement | null;
+    if (ref.current && !ref.current.contains(document.activeElement)) ref.current.focus();
+    return () => before?.focus?.();
+  }, []);
+  return (
+    <div className="sheet-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div
+        ref={ref}
+        className="sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        tabIndex={-1}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") {
+            e.stopPropagation();
+            onClose();
+          }
+        }}
+      >
+        <div className="sheet-head">
+          <h3>{title}</h3>
+          <button type="button" className="sheet-close" aria-label={t("close")} onClick={onClose}>
+            ✕
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/** A big − / number / + control for whole numbers. */
+export function Stepper({
+  value,
+  onChange,
+  label,
+  fewer,
+  more,
+  count,
+  min = 1,
+  max = 100,
+}: {
+  value: number;
+  onChange: (n: number) => void;
+  label: string;
+  fewer: string;
+  more: string;
+  count: string;
+  min?: number;
+  max?: number;
+}) {
+  return (
+    <span className="stepper" role="group" aria-label={label}>
+      <button type="button" className="icon-btn" aria-label={fewer} disabled={value <= min} onClick={() => onChange(value - 1)}>
+        −
+      </button>
+      <output className="num stepper-n" aria-label={count}>
+        {value}
+      </output>
+      <button type="button" className="icon-btn" aria-label={more} disabled={value >= max} onClick={() => onChange(value + 1)}>
+        +
+      </button>
+    </span>
+  );
+}
+
+const ICONS = {
+  week: <><rect x="3" y="5" width="18" height="16" rx="3" /><path d="M8 3v4M16 3v4M3 10h18" /></>,
+  foods: <><path d="M4 12h16c0 5-3 8-8 8s-8-3-8-8z" /><path d="M9 8c0-1.5 1-2 1-3.5M14 8c0-1.5 1-2 1-3.5" /></>,
+  shopping: <><path d="M3 9h18l-2 10H5z" /><path d="M8 9l3-5M16 9l-3-5" /></>,
+  spending: <><rect x="3" y="6" width="18" height="13" rx="3" /><path d="M3 10.5h18" /><circle cx="16.5" cy="15" r="1" /></>,
+};
+export function Icon({ name }: { name: keyof typeof ICONS }) {
+  return (
+    <svg className="ico" viewBox="0 0 24 24" aria-hidden="true">
+      {ICONS[name]}
+    </svg>
   );
 }

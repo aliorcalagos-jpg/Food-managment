@@ -45,7 +45,7 @@ test("choosing foods updates what to buy at once, scales, and is remembered per 
   await page.getByRole("button", { name: /التالي/ }).click();
   await expect(food(page, "رز مع دجاج")).toHaveAttribute("aria-pressed", "false");
   await expect(buy(page).getByText("اضغط على طبق لترى ما تحتاج إلى شرائه.")).toBeVisible();
-  await page.getByRole("button", { name: "هذا الأسبوع", exact: true }).nth(1).click();
+  await page.locator(".week-now").click();
   await expect(food(page, "رز مع دجاج")).toHaveAttribute("aria-pressed", "true");
 
   // saved, and survives a reload
@@ -94,6 +94,8 @@ test("a food with no ingredients says so and jumps to its form; deleting a food 
   await page.getByRole("button", { name: "Add ingredients" }).click();
   await expect(page.getByRole("heading", { name: "Edit recipe" })).toBeVisible();
   await expect(page.getByLabel("Title", { exact: true })).toHaveValue("يخنة بازيلاء");
+  await expect(page.getByLabel("Type an ingredient")).toBeFocused(); // the ingredient sheet is already open
+  await page.getByRole("button", { name: "Done", exact: true }).click();
   await page.getByRole("button", { name: "Cancel" }).click();
   await page.getByRole("button", { name: "All recipes" }).click();
   await page.getByRole("button", { name: /^يخنة بازيلاء/ }).click();

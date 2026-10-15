@@ -1,28 +1,40 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { normalizeArabic } from "../../../lib/arabic";
-import { parseIngredientLine, splitLines } from "../../../lib/ingredient-line";
 import { normalizeName } from "../../../lib/ingredients";
-import { formatQuantity } from "../../../lib/quantity";
+import { formatQuantity, parseQuantity } from "../../../lib/quantity";
 import { isHttpUrl } from "../../../lib/url";
 import { validateRecipe, type RecipeErrors, type RecipeFormValues } from "../forms";
-import { unitSuggestions, useI18n } from "../i18n";
+import { useI18n } from "../i18n";
 import type { Recipe } from "../model";
 import { EXAMPLE_TAG, type Store } from "../store";
-import { Arrow, ConfirmAction, Empty, FieldError, ItemLabel } from "./common";
+import { Arrow, ConfirmAction, Empty, FieldError, ItemLabel, Stepper } from "./common";
+import { IngredientSheet, type IngRow } from "./IngredientSheet";
 
 type View = { kind: "list" } | { kind: "detail"; id: string } | { kind: "edit"; id?: string };
 
 // Search folds spelling variants, so typing ارز finds أرز and رز.
 const fold = (s: string) => normalizeArabic(s).toLowerCase();
 
-export function Recipes({ store, recipes, initialEditId }: { store: Store; recipes: Recipe[]; /** Open this food's edit form straight away (the This week tab jumps here to add ingredients). */ initialEditId?: string | null }) {
+export function Recipes({
+  store,
+  recipes,
+  initialEditId,
+  startNew,
+}: {
+  store: Store;
+  recipes: Recipe[];
+  /** Open this food's edit form straight away (the This week tab jumps here to add ingredients). */
+  initialEditId?: string | null;
+  /** Open an empty new-food form straight away. */
+  startNew?: boolean;
+}) {
   // Ingredient names already used in any food, one per spelling-family (first written wins), for suggestions.
   const knownNames = useMemo(() => {
     const byKey = new Map<string, string>();
     for (const r of recipes) for (const i of r.ingredients) if (i.name.trim()) byKey.set(normalizeName(i.name), byKey.get(normalizeName(i.name)) ?? i.name.trim());
     return [...byKey.values()];
   }, [recipes]);
-  const [view, setView] = useState<View>(initialEditId ? { kind: "edit", id: initialEditId } : { kind: "list" });
+  const [view, setView] = useState<View>(initialEditId ? { kind: "edit", id: initialEditId } : startNew ? { kind: "edit" } : { kind: "list" });
   const [q, setQ] = useState("");
   const [tag, setTag] = useState("");
 
@@ -102,9 +114,6 @@ function RecipeList(props: {
     <section aria-labelledby="recipes-h">
       <div className="page-head">
         <h2 id="recipes-h">{t("recipesH")}</h2>
-        <button type="button" className="btn primary" onClick={props.onNew}>
-          {t("newRecipe")}
-        </button>
       </div>
 
       {hasExamples && (
@@ -142,12 +151,12 @@ function RecipeList(props: {
           </Empty>
         )
       ) : (
-        <ul className="rows">
+        <ul className="food-grid">
           {shown.map((r) => (
             <li key={r.id}>
-              <button type="button" className="row-btn" onClick={() => props.onOpen(r.id)}>
-                <bdi className="row-title">{r.title}</bdi>
-                <span className="muted num">
+              <button type="button" className={r.ingredients.length === 0 ? "food-card bare" : "food-card"} onClick={() => props.onOpen(r.id)}>
+                <bdi className="food-card-title">{r.title}</bdi>
+                <span className="food-card-meta num">
                   {r.ingredients.length === 0
                     ? t("rowMetaNoIng", { servings: r.servings })
                     : r.ingredients.length === 1
@@ -159,6 +168,10 @@ function RecipeList(props: {
           ))}
         </ul>
       )}
+      <button type="button" className="btn primary fab" onClick={props.onNew}>
+        <span aria-hidden="true">＋ </span>
+        {t("newRecipe")}
+      </button>
     </section>
   );
 }
@@ -187,14 +200,14 @@ function RecipeDetail({
     );
   }
   return (
-    <article>
-      <button type="button" className="link" onClick={onBack}>
+    <article className="stack">
+      <button type="button" className="back" onClick={onBack}>
         <Arrow /> {t("backToRecipes")}
       </button>
       <div className="page-head">
         <h2 dir="auto">{recipe.title}</h2>
         <div className="actions">
-          <button type="button" className="link" onClick={onEdit}>
+          <button type="button" className="btn ghost" onClick={onEdit}>
             {t("edit")}
           </button>
           <ConfirmAction label={t("delete")} confirmLabel={t("deleteRecipeConfirm")} onConfirm={onDelete} />
@@ -212,7 +225,7 @@ function RecipeDetail({
         )}
       </p>
       {recipe.tags.length > 0 && (
-        <div className="chips">
+        <div className="chips tags">
           {recipe.tags.map((tg) => (
             <button key={tg} type="button" className="chip" onClick={() => onTag(tg)}>
               <bdi>{tg}</bdi>
@@ -250,7 +263,7 @@ function RecipeDetail({
 }
 
 function blankForm(): RecipeFormValues {
-  return { title: "", servings: "1", tags: "", sourceUrl: "", instructions: "", rows: [{ name: "", quantity: "", unit: "" }] };
+  return { title: "", servings: "1", tags: "", sourceUrl: "", instructions: "", rows: [] };
 }
 
 function toForm(r: Recipe): RecipeFormValues {
@@ -261,9 +274,7 @@ function toForm(r: Recipe): RecipeFormValues {
     sourceUrl: r.sourceUrl ?? "",
     instructions: r.instructions,
     // fractions round-trip exactly, so editing never erodes 1/3 into 0.33
-    rows: r.ingredients.length
-      ? r.ingredients.map((i) => ({ name: i.name, quantity: formatQuantity(i.quantity), unit: i.unit }))
-      : [{ name: "", quantity: "", unit: "" }],
+    rows: r.ingredients.map((i) => ({ name: i.name, quantity: formatQuantity(i.quantity), unit: i.unit })),
   };
 }
 
@@ -280,48 +291,13 @@ function RecipeForm({
   onSave: (r: Omit<Recipe, "id">) => Promise<void>;
   onCancel: () => void;
 }) {
-  const { t, lang } = useI18n();
+  const { t } = useI18n();
   const [v, setV] = useState(initial);
   const [errors, setErrors] = useState<RecipeErrors>({});
   const [saving, setSaving] = useState(false);
-  const setRow = (n: number, patch: Partial<RecipeFormValues["rows"][number]>) =>
-    setV((cur) => ({ ...cur, rows: cur.rows.map((r, i) => (i === n ? { ...r, ...patch } : r)) }));
-
-  const [quick, setQuick] = useState("");
-  const [added, setAdded] = useState(0);
-  const focusQty = useRef<number | null>(null);
-  const quickRef = useRef<HTMLTextAreaElement>(null);
-  const isBlank = (r: RecipeFormValues["rows"][number]) => !r.name.trim() && !r.quantity.trim() && !r.unit.trim();
-
-  // After rows are added, put the cursor where the next typing belongs (a row still missing its quantity).
-  useEffect(() => {
-    if (focusQty.current === null) return;
-    document.getElementById(`ing-qty-${focusQty.current}`)?.focus();
-    focusQty.current = null;
-  });
-
-  /** Turns typed or pasted lines into rows (taking the spelling of an ingredient already in another food). */
-  function addLines(text: string) {
-    const known = new Map(knownNames.map((n) => [normalizeName(n), n]));
-    const parsed = splitLines(text).map(parseIngredientLine).filter((r) => r.name || r.quantity || r.unit).map((r) => ({ ...r, name: known.get(normalizeName(r.name)) ?? r.name }));
-    if (parsed.length === 0) return;
-    const kept = v.rows.filter((r) => !isBlank(r));
-    setV({ ...v, rows: [...kept, ...parsed] });
-    setQuick("");
-    setAdded(parsed.length);
-    const missing = parsed.findIndex((r) => !r.quantity);
-    if (missing >= 0) focusQty.current = kept.length + missing;
-    else quickRef.current?.focus();
-  }
-
-  function nameKey(e: React.KeyboardEvent, n: number) {
-    if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
-    e.preventDefault(); // Enter moves to the next ingredient; the Save button saves
-    if (n < v.rows.length - 1) return void document.getElementById(`ing-qty-${n + 1}`)?.focus();
-    if (isBlank(v.rows[n])) return;
-    focusQty.current = n + 1; // the new row does not exist yet: focus it after it renders
-    setV({ ...v, rows: [...v.rows, { name: "", quantity: "", unit: "" }] });
-  }
+  // null = closed; { index: null } = adding; { index: n } = editing ingredient n. A food with no ingredients opens ready to add.
+  const [sheet, setSheet] = useState<{ index: number | null } | null>(!isNew && initial.rows.length === 0 ? { index: null } : null);
+  const servings = Math.min(100, Math.max(1, Math.round(Number(v.servings) || 1)));
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -337,102 +313,106 @@ function RecipeForm({
   }
 
   return (
-    <form onSubmit={submit} noValidate className="stack">
-      <h2>{isNew ? t("newRecipe") : t("editRecipe")}</h2>
+    <>
+      <form onSubmit={submit} noValidate className="stack">
+        <h2>{isNew ? t("newRecipe") : t("editRecipe")}</h2>
 
-      <div className="field">
-        <label htmlFor="recipe-title">{t("fTitle")}</label>
-        <input id="recipe-title" dir="auto" maxLength={120} value={v.title} aria-invalid={!!errors.title} aria-describedby="recipe-title-err" onChange={(e) => setV({ ...v, title: e.target.value })} />
-        <FieldError id="recipe-title-err" msg={errors.title} />
-      </div>
-
-      <div className="two">
         <div className="field">
-          <label htmlFor="recipe-servings">{t("fServings")}</label>
-          <input id="recipe-servings" type="number" inputMode="numeric" min={1} max={100} value={v.servings} aria-describedby="recipe-servings-hint recipe-servings-err" onChange={(e) => setV({ ...v, servings: e.target.value })} />
-          <p className="hint muted" id="recipe-servings-hint">{t("fServingsHint")}</p>
+          <label htmlFor="recipe-title">{t("fTitle")}</label>
+          <input id="recipe-title" dir="auto" maxLength={120} value={v.title} aria-invalid={!!errors.title} aria-describedby="recipe-title-err" onChange={(e) => setV({ ...v, title: e.target.value })} />
+          <FieldError id="recipe-title-err" msg={errors.title} />
+        </div>
+
+        <div className="field">
+          <span className="label" id="recipe-servings-l">
+            {t("fServings")}
+          </span>
+          <div>
+            <Stepper value={servings} onChange={(n) => setV({ ...v, servings: String(n) })} label={t("fServings")} fewer={t("fewerServings")} more={t("moreServings")} count={t("servingsNow")} />
+          </div>
+          <p className="hint muted" id="recipe-servings-hint">
+            {t("fServingsHint")}
+          </p>
           <FieldError id="recipe-servings-err" msg={errors.servings} />
         </div>
-        <div className="field">
-          <label htmlFor="recipe-tags">{t("fTags")}</label>
-          <input id="recipe-tags" dir="auto" placeholder={t("fTagsPh")} value={v.tags} aria-describedby="recipe-tags-err" onChange={(e) => setV({ ...v, tags: e.target.value })} />
-          <FieldError id="recipe-tags-err" msg={errors.tags} />
-        </div>
-      </div>
 
-      <fieldset className="ings">
-        <legend>{t("ingredientsH")}</legend>
-        <datalist id="units">{unitSuggestions(lang).map((u) => <option key={u} value={u} />)}</datalist>
-        <datalist id="ing-names">{knownNames.map((n) => <option key={n} value={n} />)}</datalist>
-        <div className="quick-add">
-          <label htmlFor="quick-add">{t("quickAddLabel")}</label>
-          <div className="quick-row">
-            <textarea
-              id="quick-add"
-              ref={quickRef}
-              dir="auto"
-              rows={2}
-              autoFocus={!isNew && v.rows.every(isBlank)}
-              placeholder={t("quickAddPh")}
-              aria-describedby="quick-add-hint"
-              value={quick}
-              onChange={(e) => setQuick(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-                  e.preventDefault();
-                  addLines(quick);
-                }
-              }}
-              onPaste={(e) => {
-                const text = e.clipboardData.getData("text");
-                if (/\r?\n/.test(text.trim())) {
-                  e.preventDefault();
-                  addLines(`${quick}\n${text}`);
-                }
-              }}
-            />
-            <button type="button" className="btn ghost" onClick={() => addLines(quick)}>
-              {t("quickAddBtn")}
+        <fieldset className="ings">
+          <legend>{t("ingredientsH")}</legend>
+          {v.rows.length > 0 && (
+            <ul className="ing-list">
+              {v.rows.map((r, n) => {
+                const q = parseQuantity(r.quantity);
+                return (
+                  <li key={n} className={q === null ? "ing-line bad" : "ing-line"}>
+                    <button type="button" className="ing-line-btn num" onClick={() => setSheet({ index: n })}>
+                      {q === null ? (
+                        <>
+                          <bdi>{r.name}</bdi>
+                          <small>{t("needsQty")}</small>
+                        </>
+                      ) : (
+                        <span>
+                          <ItemLabel quantity={q} unit={r.unit} name={r.name} />
+                        </span>
+                      )}
+                    </button>
+                    <button type="button" className="icon-btn" aria-label={t("fRemoveIng", { n: n + 1 })} onClick={() => setV({ ...v, rows: v.rows.filter((_, i) => i !== n) })}>
+                      ✕
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+          <FieldError id="recipe-ings-err" msg={errors.ingredients} />
+          <button type="button" className="btn ghost add-ing block" onClick={() => setSheet({ index: null })}>
+            <span aria-hidden="true">＋ </span>
+            {t("addIngredient")}
+          </button>
+        </fieldset>
+
+        <details className="more">
+          <summary>{t("moreDetails")}</summary>
+          <div className="stack">
+            <div className="field">
+              <label htmlFor="recipe-tags">{t("fTags")}</label>
+              <input id="recipe-tags" dir="auto" placeholder={t("fTagsPh")} value={v.tags} aria-describedby="recipe-tags-err" onChange={(e) => setV({ ...v, tags: e.target.value })} />
+              <FieldError id="recipe-tags-err" msg={errors.tags} />
+            </div>
+            <div className="field">
+              <label htmlFor="recipe-instructions">{t("fInstructions")}</label>
+              <textarea id="recipe-instructions" dir="auto" rows={6} maxLength={20000} value={v.instructions} onChange={(e) => setV({ ...v, instructions: e.target.value })} />
+            </div>
+            <div className="field">
+              <label htmlFor="recipe-source">{t("fSource")}</label>
+              <input id="recipe-source" type="text" inputMode="url" dir="ltr" placeholder="https://" value={v.sourceUrl} aria-describedby="recipe-source-err" onChange={(e) => setV({ ...v, sourceUrl: e.target.value })} />
+              <FieldError id="recipe-source-err" msg={errors.sourceUrl} />
+            </div>
+          </div>
+        </details>
+
+        <div className="focus-bar">
+          <div className="focus-bar-in">
+            <button type="button" className="btn ghost" onClick={onCancel}>
+              {t("cancel")}
+            </button>
+            <button type="submit" className="btn primary" disabled={saving}>
+              {saving ? t("saving") : t("saveRecipe")}
             </button>
           </div>
-          <p id="quick-add-hint" className="hint muted">{t("quickAddHint")}</p>
-          <p className="sr-only" role="status">{added > 0 ? (added === 1 ? t("quickAddedOne") : t("quickAddedN", { n: added })) : ""}</p>
         </div>
-        {v.rows.map((r, n) => (
-          <div key={n} className="ing-row">
-            <input id={`ing-qty-${n}`} dir="ltr" aria-label={t("fQty", { n: n + 1 })} inputMode="decimal" placeholder={t("phQty")} value={r.quantity} onChange={(e) => setRow(n, { quantity: e.target.value })} />
-            <input id={`ing-unit-${n}`} dir="auto" aria-label={t("fUnit", { n: n + 1 })} list="units" placeholder={t("phUnit")} value={r.unit} onChange={(e) => setRow(n, { unit: e.target.value })} />
-            <input id={`ing-name-${n}`} dir="auto" aria-label={t("fIng", { n: n + 1 })} list="ing-names" placeholder={t("phIng")} value={r.name} onChange={(e) => setRow(n, { name: e.target.value })} onKeyDown={(e) => nameKey(e, n)} />
-            <button type="button" className="icon-btn" aria-label={t("fRemoveIng", { n: n + 1 })} disabled={v.rows.length === 1} onClick={() => setV({ ...v, rows: v.rows.filter((_, i) => i !== n) })}>
-              ✕
-            </button>
-          </div>
-        ))}
-        <FieldError id="recipe-ings-err" msg={errors.ingredients} />
-        <button type="button" className="link" onClick={() => setV({ ...v, rows: [...v.rows, { name: "", quantity: "", unit: "" }] })}>
-          {t("addIngredient")}
-        </button>
-      </fieldset>
+      </form>
 
-      <div className="field">
-        <label htmlFor="recipe-instructions">{t("fInstructions")}</label>
-        <textarea id="recipe-instructions" dir="auto" rows={8} maxLength={20000} value={v.instructions} onChange={(e) => setV({ ...v, instructions: e.target.value })} />
-      </div>
-
-      <div className="field">
-        <label htmlFor="recipe-source">{t("fSource")}</label>
-        <input id="recipe-source" type="text" inputMode="url" dir="ltr" placeholder="https://" value={v.sourceUrl} aria-describedby="recipe-source-err" onChange={(e) => setV({ ...v, sourceUrl: e.target.value })} />
-        <FieldError id="recipe-source-err" msg={errors.sourceUrl} />
-      </div>
-
-      <div className="actions">
-        <button type="submit" className="btn primary" disabled={saving}>
-          {saving ? t("saving") : t("saveRecipe")}
-        </button>
-        <button type="button" className="btn ghost" onClick={onCancel}>
-          {t("cancel")}
-        </button>
-      </div>
-    </form>
+      {sheet && (
+        <IngredientSheet
+          rows={v.rows}
+          index={sheet.index}
+          knownNames={knownNames}
+          onAdd={(added: IngRow[]) => setV((cur) => ({ ...cur, rows: [...cur.rows, ...added] }))}
+          onReplace={(i, row) => setV((cur) => ({ ...cur, rows: cur.rows.map((r, n) => (n === i ? row : r)) }))}
+          onClose={() => setSheet(null)}
+        />
+      )}
+    </>
   );
 }

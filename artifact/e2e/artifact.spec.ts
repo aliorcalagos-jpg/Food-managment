@@ -3,16 +3,17 @@ import { openArtifact, stored } from "./harness";
 
 const TODAY = "2026-10-14"; // a Wednesday, so the week is Mon Oct 12 - Sun Oct 18
 
+/** Adds a food through the ingredient sheet: type each line, Enter, then Done. */
 async function addRecipe(page: Page, title: string, servings: string, ings: [string, string, string][]) {
-  await page.getByRole("button", { name: "New recipe" }).click();
+  await page.getByRole("button", { name: "New food" }).click();
   await page.getByLabel("Title", { exact: true }).fill(title);
-  await page.getByLabel("Servings these quantities make", { exact: true }).fill(servings);
-  for (const [i, [qty, unit, name]] of ings.entries()) {
-    if (i > 0) await page.getByRole("button", { name: "+ Add ingredient" }).click();
-    await page.getByLabel(`Quantity ${i + 1}`, { exact: true }).fill(qty);
-    await page.getByLabel(`Unit ${i + 1}`, { exact: true }).fill(unit);
-    await page.getByLabel(`Ingredient ${i + 1}`, { exact: true }).fill(name);
+  for (let n = 1; n < Number(servings); n++) await page.getByRole("button", { name: "More servings" }).click();
+  await page.getByRole("button", { name: "Add ingredient" }).click();
+  for (const [qty, unit, name] of ings) {
+    await page.getByLabel("Type an ingredient").fill([qty, unit, name].filter(Boolean).join(" "));
+    await page.getByLabel("Type an ingredient").press("Enter");
   }
+  await page.getByRole("button", { name: "Done", exact: true }).click();
   await page.getByRole("button", { name: "Save recipe" }).click();
   await expect(page.getByRole("heading", { name: title })).toBeVisible();
 }
@@ -25,18 +26,20 @@ test("recipes, this week and shopping list end to end", async ({ page }) => {
 
   // designed empty state, then validation that keeps what was typed
   await expect(page.getByText("No recipes yet")).toBeVisible();
-  await page.getByRole("button", { name: "New recipe" }).click();
+  await page.getByRole("button", { name: "New food" }).click();
   await page.getByLabel("Title", { exact: true }).fill("Pasta");
-  await page.getByLabel("Quantity 1", { exact: true }).fill("lots");
-  await page.getByLabel("Ingredient 1", { exact: true }).fill("spaghetti");
-  await page.getByRole("button", { name: "Save recipe" }).click();
-  await expect(page.getByText(/Check the quantity for "spaghetti"/)).toBeVisible();
-  await expect(page.getByLabel("Ingredient 1", { exact: true })).toHaveValue("spaghetti");
+  await page.getByRole("button", { name: "Add ingredient" }).click();
+  await page.getByLabel("Type an ingredient").fill("lots spaghetti"); // no number: nothing can be added until a quantity is given
+  await expect(page.getByText("Add a quantity")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Add", exact: true })).toBeDisabled();
+  await page.getByLabel("Type an ingredient").fill("400 g spaghetti");
+  await page.getByLabel("Type an ingredient").press("Enter");
+  await page.getByRole("button", { name: "Done", exact: true }).click();
+  await page.getByText("More details", { exact: false }).click();
   await page.getByLabel("Source link (optional)").fill("javascript:alert(1)");
-  await page.getByLabel("Quantity 1", { exact: true }).fill("400");
-  await page.getByLabel("Unit 1", { exact: true }).fill("g");
   await page.getByRole("button", { name: "Save recipe" }).click();
   await expect(page.getByText("Enter a valid http(s) link")).toBeVisible();
+  await expect(page.getByRole("button", { name: /400 g spaghetti/ })).toBeVisible(); // what was typed is kept
   await page.getByRole("button", { name: "Cancel" }).click();
 
   await addRecipe(page, "Pasta", "4", [["400", "g", "spaghetti"], ["2", "cup", "milk"], ["3", "", "tomatoes"]]);
@@ -100,18 +103,17 @@ test("recipes, this week and shopping list end to end", async ({ page }) => {
   await expect.poll(async () => ((await stored(page, "lists"))[0].items as { checked: boolean }[]).filter((i) => i.checked).length).toBe(2);
   await setDelay(15);
   await page.reload();
-  await page.getByRole("button", { name: /^Shopping/ }).click();
+  await page.getByRole("button", { name: /^Shopping 2026/ }).click();
   await expect(page.getByLabel("3 cup milk")).toBeChecked();
   await expect(page.getByLabel("4 1/2 tomatoes")).toBeChecked();
   await expect(page.getByLabel("1.6 kg spaghetti")).not.toBeChecked();
 
   // manual items: validation keeps input, fraction works, default quantity is 1
-  await page.getByLabel("Item name").fill("paper towels");
-  await page.getByLabel("Quantity", { exact: true }).fill("lots");
+  await page.getByLabel("Add an item").fill("500000 paper towels");
   await page.getByRole("button", { name: "Add", exact: true }).click();
   await expect(page.getByText("Use a number like 2, 0.5 or 1/2.")).toBeVisible();
-  await expect(page.getByLabel("Item name")).toHaveValue("paper towels");
-  await page.getByLabel("Quantity", { exact: true }).fill("");
+  await expect(page.getByLabel("Add an item")).toHaveValue("500000 paper towels");
+  await page.getByLabel("Add an item").fill("paper towels");
   await page.getByRole("button", { name: "Add", exact: true }).click();
   await expect(page.getByLabel("1 paper towels")).toBeVisible();
   await expect(page.getByRole("region", { name: "Other" })).toBeVisible();
@@ -119,13 +121,14 @@ test("recipes, this week and shopping list end to end", async ({ page }) => {
   await expect(page.getByLabel("1 paper towels")).toHaveCount(0);
 
   // clear checked uses an inline confirmation (the viewer has no confirm())
+  await page.getByText("More", { exact: true }).click();
   await page.getByRole("button", { name: "Clear 2 checked items" }).click();
   await page.getByRole("button", { name: "Remove checked items" }).click();
   await expect(page.getByLabel("3 cup milk")).toHaveCount(0);
   await expect(page.getByLabel("1.6 kg spaghetti")).toBeVisible();
 
   // deleting a recipe also takes it off the week; the list already made is untouched
-  await page.getByRole("button", { name: "Recipes" }).click();
+  await page.getByRole("button", { name: "Foods", exact: true }).click();
   await page.getByRole("button", { name: /Bake/ }).click();
   await page.getByRole("button", { name: "Delete", exact: true }).click();
   await page.getByRole("button", { name: "Delete recipe and take it off the week" }).click();
@@ -143,10 +146,12 @@ test("recipes, this week and shopping list end to end", async ({ page }) => {
 test("a failed save shows an error instead of silently losing the change", async ({ page }) => {
   await openArtifact(page, { today: TODAY });
   await page.evaluate(() => ((window as unknown as { __failWrites: boolean }).__failWrites = true));
-  await page.getByRole("button", { name: "New recipe" }).click();
+  await page.getByRole("button", { name: "New food" }).click();
   await page.getByLabel("Title", { exact: true }).fill("Soup");
-  await page.getByLabel("Quantity 1", { exact: true }).fill("1");
-  await page.getByLabel("Ingredient 1", { exact: true }).fill("leek");
+  await page.getByRole("button", { name: "Add ingredient" }).click();
+  await page.getByLabel("Type an ingredient").fill("1 leek");
+  await page.getByLabel("Type an ingredient").press("Enter");
+  await page.getByRole("button", { name: "Done", exact: true }).click();
   await page.getByRole("button", { name: "Save recipe" }).click();
   await expect(page.getByRole("alert").filter({ hasText: "Couldn't save that" })).toBeVisible();
   // the form stays open with what was typed, and nothing was stored or shown as saved
@@ -165,7 +170,7 @@ test("a failed save shows an error instead of silently losing the change", async
 test("explains itself when storage is unavailable", async ({ page }) => {
   await openArtifact(page, { noDb: true });
   await expect(page.getByText("Your recipes can't be opened right now")).toBeVisible();
-  await expect(page.getByRole("button", { name: "New recipe" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "New food" })).toHaveCount(0);
 });
 
 test("example recipes can be removed, and come off the week too", async ({ page }) => {

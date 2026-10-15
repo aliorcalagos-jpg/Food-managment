@@ -2,12 +2,10 @@ import { useState } from "react";
 import { groupItems } from "../../../lib/list-build";
 import { addDays, formatWeekRange, parseISODate, startOfWeek, toISODate } from "../../../lib/week";
 import { aisleLabel, useI18n } from "../i18n";
-import { buildBuyList, setPick, type Recipe, type ShoppingList, type WeekPlan } from "../model";
+import { buildBuyList, setPick, type BuyList, type Recipe, type ShoppingList, type WeekPlan } from "../model";
 import type { Store } from "../store";
 import { todayISO } from "../today";
-import { Arrow, Empty, ItemLabel } from "./common";
-
-const MAX_SERVINGS = 100;
+import { Arrow, Empty, ItemLabel, Sheet, Stepper, useWide } from "./common";
 
 export function Week({
   store,
@@ -16,6 +14,7 @@ export function Week({
   lists,
   onEditRecipe,
   onOpenList,
+  onNewFood,
 }: {
   store: Store;
   recipes: Recipe[];
@@ -24,11 +23,14 @@ export function Week({
   /** Jump to a food's edit form (to add its ingredients). */
   onEditRecipe: (id: string) => void;
   onOpenList: (id: string) => void;
+  onNewFood: () => void;
 }) {
   const { t, lang } = useI18n();
+  const wide = useWide();
   const today = todayISO();
   const thisMonday = startOfWeek(parseISODate(today)!);
   const [monday, setMonday] = useState(thisMonday);
+  const [sheet, setSheet] = useState(false);
   const weekStart = toISODate(monday);
   const week = weeks.find((w) => w.weekStart === weekStart);
   const picks = week?.picks ?? [];
@@ -36,86 +38,111 @@ export function Week({
   const sorted = [...recipes].sort((a, b) => a.title.localeCompare(b.title, lang));
   const buy = buildBuyList(picks, recipes);
   const started = week?.listId ? lists.find((l) => l.id === week.listId) : undefined;
+  const chosenCount = sorted.filter((r) => pickOf.has(r.id)).length;
 
   const choose = (recipe: Recipe, servings: number | null) => void store.updateWeek(weekStart, (w) => setPick(w, weekStart, recipe.id, servings));
 
   async function startShopping() {
     if (buy.items.length === 0) return;
-    const range = { rangeStart: weekStart, rangeEnd: toISODate(addDays(monday, 6)) };
     const id = await store.startShopping(weekStart, {
-      name: t("tripDefaultName", { date: today }),
-      ...range,
+      name: t("tripDefaultName", { date: lang === "ar" ? `\u2066${today}\u2069` : today }),
+      rangeStart: weekStart,
+      rangeEnd: toISODate(addDays(monday, 6)),
       createdAt: new Date().toISOString(),
       shoppedOn: today,
       items: buy.items,
     });
-    if (id) onOpenList(id);
+    if (id) {
+      setSheet(false);
+      onOpenList(id);
+    }
   }
+
+  const startButton = (
+    <button type="button" className={started && wide ? "btn ghost" : "btn primary"} disabled={buy.items.length === 0} onClick={() => void startShopping()}>
+      {started ? t("startAnother") : t("startShopping")}
+    </button>
+  );
+  const startedBanner = started && (
+    <p className="banner" role="status">
+      <span>{t("startedBanner")}</span>
+      <button type="button" className="link" onClick={() => onOpenList(started.id)}>
+        {t("openTheList")}
+      </button>
+    </p>
+  );
 
   return (
     <section aria-labelledby="week-h" className="stack">
-      <div className="page-head">
-        <h2 id="week-h">{t("weekH")}</h2>
-        <nav aria-label={t("weekNav")} className="weeknav">
-          <button type="button" className="link" onClick={() => setMonday(addDays(monday, -7))}>
-            <Arrow /> {t("prev")}
-          </button>
+      <h2 id="week-h" className="sr-only">
+        {t("weekH")}
+      </h2>
+      <nav aria-label={t("weekNav")} className="week-bar">
+        <button type="button" className="week-btn" aria-label={t("prev")} onClick={() => setMonday(addDays(monday, -7))}>
+          <Arrow />
+        </button>
+        <div className="week-mid">
           <span className="week-range num" aria-live="polite">
             {formatWeekRange(monday, lang)}
           </span>
-          <button type="button" className="link" onClick={() => setMonday(addDays(monday, 7))}>
-            {t("next")} <Arrow forward />
-          </button>
           {weekStart !== toISODate(thisMonday) && (
-            <button type="button" className="link" onClick={() => setMonday(thisMonday)}>
+            <button type="button" className="week-now" onClick={() => setMonday(thisMonday)}>
               {t("thisWeek")}
             </button>
           )}
-        </nav>
-      </div>
+        </div>
+        <button type="button" className="week-btn" aria-label={t("next")} onClick={() => setMonday(addDays(monday, 7))}>
+          <Arrow forward />
+        </button>
+      </nav>
 
       <div className="week-grid">
         <div className="stack">
           <h3 id="foods-h">{t("pickFoods")}</h3>
           {recipes.length === 0 ? (
-            <Empty title={t("needFoods")}>{t("needFoodsHint")}</Empty>
+            <Empty title={t("needFoods")}>
+              {t("needFoodsHint")}
+              <span className="empty-inline">
+                <button type="button" className="btn primary" onClick={onNewFood}>
+                  {t("newRecipe")}
+                </button>
+              </span>
+            </Empty>
           ) : (
-            <ul className="rows food-list" aria-labelledby="foods-h">
+            <ul className="picks" aria-labelledby="foods-h">
               {sorted.map((r) => {
                 const servings = pickOf.get(r.id);
                 const on = servings !== undefined;
                 const bare = r.ingredients.length === 0;
                 return (
-                  <li key={r.id} className={on ? "food on" : "food"}>
-                    <button type="button" className="food-btn" aria-pressed={on} onClick={() => choose(r, on ? null : r.servings)}>
-                      <span className="food-mark" aria-hidden="true">
-                        {on ? "✓" : ""}
+                  <li key={r.id} className={on ? "pick on" : "pick"}>
+                    <button type="button" className="pick-btn" aria-pressed={on} onClick={() => choose(r, on ? null : r.servings)}>
+                      <bdi>{r.title}</bdi>
+                      <span className="pick-check" aria-hidden="true">
+                        ✓
                       </span>
-                      <bdi className="row-title">{r.title}</bdi>
                     </button>
                     {bare && (
-                      <p className="food-note muted">
-                        <span className="pill">{t("noIngredientsYet")}</span>{" "}
+                      <div className="pick-note">
+                        <span className="pill">{t("noIngredientsYet")}</span>
                         <button type="button" className="link" onClick={() => onEditRecipe(r.id)}>
                           {t("addIngredientsCta")}
                         </button>
-                      </p>
+                      </div>
                     )}
                     {on && (
-                      <div className="food-servings">
-                        <span className="stepper" role="group" aria-label={t("servingsFor", { title: r.title })}>
-                          <button type="button" className="icon-btn" aria-label={t("fewer", { title: r.title })} disabled={servings <= 1} onClick={() => choose(r, servings - 1)}>
-                            −
-                          </button>
-                          <output className="num stepper-n" aria-label={t("servingsCount", { title: r.title })}>
-                            {servings}
-                          </output>
-                          <button type="button" className="icon-btn" aria-label={t("more", { title: r.title })} disabled={servings >= MAX_SERVINGS} onClick={() => choose(r, servings + 1)}>
-                            +
-                          </button>
+                      <div className="pick-foot">
+                        <Stepper
+                          value={servings}
+                          onChange={(n) => choose(r, n)}
+                          label={t("servingsFor", { title: r.title })}
+                          fewer={t("fewer", { title: r.title })}
+                          more={t("more", { title: r.title })}
+                          count={t("servingsCount", { title: r.title })}
+                        />
+                        <span className="muted num">
+                          {t("servingsWord")} · {t("recipeMakes", { n: r.servings })}
                         </span>
-                        <span className="muted">{t("servingsWord")}</span>
-                        <span className="muted num">{t("recipeMakes", { n: r.servings })}</span>
                       </div>
                     )}
                   </li>
@@ -125,50 +152,73 @@ export function Week({
           )}
         </div>
 
-        <aside className="card stack buy" aria-labelledby="buy-h">
-          <div className="buy-head">
-            <h3 id="buy-h">{t("buyH")}</h3>
-            <span className="muted num" aria-live="polite">
-              {buy.items.length === 1 ? t("buyCountOne") : t("buyCountN", { n: buy.items.length })}
-            </span>
-          </div>
-
-          {buy.skipped.length > 0 && (
-            <p className="banner" role="note">
-              {t("noteSkipped", { names: buy.skipped.join(" · ") })}
-            </p>
-          )}
-
-          {buy.items.length === 0 ? (
-            <p className="muted">{picks.length === 0 ? t("buyEmpty") : t("buyNothingYet")}</p>
-          ) : (
-            groupItems(buy.items).map((g) => (
-              <section key={g.category} aria-label={aisleLabel(lang, g.category)} className="aisle">
-                <h4 className="aisle-title">{aisleLabel(lang, g.category)}</h4>
-                <ul className="rows tight">
-                  {g.items.map((i) => (
-                    <li key={i.id} className="buy-item num">
-                      <ItemLabel quantity={i.quantity} unit={i.unit} name={i.name} />
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            ))
-          )}
-
-          {started && (
-            <p className="banner" role="status">
-              <span>{t("startedBanner")}</span>
-              <button type="button" className="link" onClick={() => onOpenList(started.id)}>
-                {t("openTheList")}
-              </button>
-            </p>
-          )}
-          <button type="button" className={started ? "btn ghost" : "btn primary"} disabled={buy.items.length === 0} onClick={() => void startShopping()}>
-            {started ? t("startAnother") : t("startShopping")}
-          </button>
-        </aside>
+        {wide && (
+          <aside className="card buy" aria-labelledby="buy-h">
+            <div className="buy-head">
+              <h3 id="buy-h">{t("buyH")}</h3>
+              <span className="muted num" aria-live="polite">
+                {buy.items.length === 1 ? t("buyCountOne") : t("buyCountN", { n: buy.items.length })}
+              </span>
+            </div>
+            <BuyBody buy={buy} chosen={picks.length} />
+            {startedBanner}
+            {startButton}
+          </aside>
+        )}
       </div>
+
+      {!wide && recipes.length > 0 && (
+        <>
+          <div className="sticky-bar">
+            <div className="sticky-in">
+              <button type="button" className="bar-summary" disabled={chosenCount === 0} onClick={() => setSheet(true)}>
+                <strong>{chosenCount === 0 ? t("barNone") : chosenCount === 1 ? t("barFoodOne") : t("barFoodN", { n: chosenCount })}</strong>
+                <span aria-live="polite">
+                  {buy.items.length === 1 ? t("buyCountOne") : t("buyCountN", { n: buy.items.length })}
+                  {buy.items.length > 0 && <> · {t("barSee")}</>}
+                </span>
+              </button>
+              {startButton}
+            </div>
+          </div>
+          {sheet && (
+            <Sheet title={t("buyH")} onClose={() => setSheet(false)}>
+              <BuyBody buy={buy} chosen={picks.length} />
+              {startedBanner}
+              {startButton}
+            </Sheet>
+          )}
+        </>
+      )}
     </section>
+  );
+}
+
+function BuyBody({ buy, chosen }: { buy: BuyList; chosen: number }) {
+  const { t, lang } = useI18n();
+  return (
+    <>
+      {buy.skipped.length > 0 && (
+        <p className="banner" role="note">
+          {t("noteSkipped", { names: buy.skipped.join(" · ") })}
+        </p>
+      )}
+      {buy.items.length === 0 ? (
+        <p className="muted">{chosen === 0 ? t("buyEmpty") : t("buyNothingYet")}</p>
+      ) : (
+        groupItems(buy.items).map((g) => (
+          <section key={g.category} aria-label={aisleLabel(lang, g.category)} className="aisle">
+            <h4 className="aisle-title">{aisleLabel(lang, g.category)}</h4>
+            <ul className="rows">
+              {g.items.map((i) => (
+                <li key={i.id} className="buy-item num">
+                  <ItemLabel quantity={i.quantity} unit={i.unit} name={i.name} />
+                </li>
+              ))}
+            </ul>
+          </section>
+        ))
+      )}
+    </>
   );
 }
