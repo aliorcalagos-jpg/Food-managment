@@ -72,6 +72,12 @@ https://claude.ai/artifact/7Y6W3zydkv5T6bH1vcgyZ9 (readable only by its owner).
   snapshot list ("Shopping <date>", with the week as its range) and remembers it on the week; later changes to the
   selection do not alter that list, and pressing the button again makes a fresh one. Nothing is subtracted for what you
   already have at home. Logic: `buildBuyList` in `artifact/src/model.ts` (on top of `lib/list-build.ts`).
+- Adding ingredients: type a line in the quick-add box ("2 كوب أرز", "500g flour", "1 1/2 cups of milk") and press Enter to
+  get a filled, editable row; paste a whole list to add every line. Parsing lives in `lib/ingredient-line.ts` (shared):
+  Arabic digits, `½`, decimal commas, attached units and two-word units are understood, an unknown unit word stays in the
+  name, and a line without a number leaves the quantity empty (nothing is guessed). Enter in a row's name box starts the
+  next row, and the name boxes suggest ingredient names already used in other foods (a quick-added name takes the existing
+  spelling).
 - A food can be saved with just a name and given ingredients later; the buy panel names the chosen foods it left out
   because they have no ingredients yet, with a jump to add them. The Servings field means how many servings the entered
   quantities make (default 1, one person).

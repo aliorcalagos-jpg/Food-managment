@@ -1,5 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { normalizeArabic } from "../../../lib/arabic";
+import { parseIngredientLine, splitLines } from "../../../lib/ingredient-line";
+import { normalizeName } from "../../../lib/ingredients";
 import { formatQuantity } from "../../../lib/quantity";
 import { isHttpUrl } from "../../../lib/url";
 import { validateRecipe, type RecipeErrors, type RecipeFormValues } from "../forms";
@@ -14,6 +16,12 @@ type View = { kind: "list" } | { kind: "detail"; id: string } | { kind: "edit"; 
 const fold = (s: string) => normalizeArabic(s).toLowerCase();
 
 export function Recipes({ store, recipes, initialEditId }: { store: Store; recipes: Recipe[]; /** Open this food's edit form straight away (the This week tab jumps here to add ingredients). */ initialEditId?: string | null }) {
+  // Ingredient names already used in any food, one per spelling-family (first written wins), for suggestions.
+  const knownNames = useMemo(() => {
+    const byKey = new Map<string, string>();
+    for (const r of recipes) for (const i of r.ingredients) if (i.name.trim()) byKey.set(normalizeName(i.name), byKey.get(normalizeName(i.name)) ?? i.name.trim());
+    return [...byKey.values()];
+  }, [recipes]);
   const [view, setView] = useState<View>(initialEditId ? { kind: "edit", id: initialEditId } : { kind: "list" });
   const [q, setQ] = useState("");
   const [tag, setTag] = useState("");
@@ -25,6 +33,7 @@ export function Recipes({ store, recipes, initialEditId }: { store: Store; recip
         key={view.id ?? "new"}
         initial={existing ? toForm(existing) : blankForm()}
         isNew={!existing}
+        knownNames={knownNames}
         onCancel={() => setView(existing ? { kind: "detail", id: existing.id } : { kind: "list" })}
         onSave={async (recipe) => {
           const id = await store.saveRecipe({ ...recipe, id: existing?.id });
@@ -261,11 +270,13 @@ function toForm(r: Recipe): RecipeFormValues {
 function RecipeForm({
   initial,
   isNew,
+  knownNames,
   onSave,
   onCancel,
 }: {
   initial: RecipeFormValues;
   isNew: boolean;
+  knownNames: string[];
   onSave: (r: Omit<Recipe, "id">) => Promise<void>;
   onCancel: () => void;
 }) {
@@ -275,6 +286,42 @@ function RecipeForm({
   const [saving, setSaving] = useState(false);
   const setRow = (n: number, patch: Partial<RecipeFormValues["rows"][number]>) =>
     setV((cur) => ({ ...cur, rows: cur.rows.map((r, i) => (i === n ? { ...r, ...patch } : r)) }));
+
+  const [quick, setQuick] = useState("");
+  const [added, setAdded] = useState(0);
+  const focusQty = useRef<number | null>(null);
+  const quickRef = useRef<HTMLTextAreaElement>(null);
+  const isBlank = (r: RecipeFormValues["rows"][number]) => !r.name.trim() && !r.quantity.trim() && !r.unit.trim();
+
+  // After rows are added, put the cursor where the next typing belongs (a row still missing its quantity).
+  useEffect(() => {
+    if (focusQty.current === null) return;
+    document.getElementById(`ing-qty-${focusQty.current}`)?.focus();
+    focusQty.current = null;
+  });
+
+  /** Turns typed or pasted lines into rows (taking the spelling of an ingredient already in another food). */
+  function addLines(text: string) {
+    const known = new Map(knownNames.map((n) => [normalizeName(n), n]));
+    const parsed = splitLines(text).map(parseIngredientLine).filter((r) => r.name || r.quantity || r.unit).map((r) => ({ ...r, name: known.get(normalizeName(r.name)) ?? r.name }));
+    if (parsed.length === 0) return;
+    const kept = v.rows.filter((r) => !isBlank(r));
+    setV({ ...v, rows: [...kept, ...parsed] });
+    setQuick("");
+    setAdded(parsed.length);
+    const missing = parsed.findIndex((r) => !r.quantity);
+    if (missing >= 0) focusQty.current = kept.length + missing;
+    else quickRef.current?.focus();
+  }
+
+  function nameKey(e: React.KeyboardEvent, n: number) {
+    if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
+    e.preventDefault(); // Enter moves to the next ingredient; the Save button saves
+    if (n < v.rows.length - 1) return void document.getElementById(`ing-qty-${n + 1}`)?.focus();
+    if (isBlank(v.rows[n])) return;
+    focusQty.current = n + 1; // the new row does not exist yet: focus it after it renders
+    setV({ ...v, rows: [...v.rows, { name: "", quantity: "", unit: "" }] });
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -316,11 +363,46 @@ function RecipeForm({
       <fieldset className="ings">
         <legend>{t("ingredientsH")}</legend>
         <datalist id="units">{unitSuggestions(lang).map((u) => <option key={u} value={u} />)}</datalist>
+        <datalist id="ing-names">{knownNames.map((n) => <option key={n} value={n} />)}</datalist>
+        <div className="quick-add">
+          <label htmlFor="quick-add">{t("quickAddLabel")}</label>
+          <div className="quick-row">
+            <textarea
+              id="quick-add"
+              ref={quickRef}
+              dir="auto"
+              rows={2}
+              autoFocus={!isNew && v.rows.every(isBlank)}
+              placeholder={t("quickAddPh")}
+              aria-describedby="quick-add-hint"
+              value={quick}
+              onChange={(e) => setQuick(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                  e.preventDefault();
+                  addLines(quick);
+                }
+              }}
+              onPaste={(e) => {
+                const text = e.clipboardData.getData("text");
+                if (/\r?\n/.test(text.trim())) {
+                  e.preventDefault();
+                  addLines(`${quick}\n${text}`);
+                }
+              }}
+            />
+            <button type="button" className="btn ghost" onClick={() => addLines(quick)}>
+              {t("quickAddBtn")}
+            </button>
+          </div>
+          <p id="quick-add-hint" className="hint muted">{t("quickAddHint")}</p>
+          <p className="sr-only" role="status">{added > 0 ? (added === 1 ? t("quickAddedOne") : t("quickAddedN", { n: added })) : ""}</p>
+        </div>
         {v.rows.map((r, n) => (
           <div key={n} className="ing-row">
-            <input id={`ing-qty-${n}`} aria-label={t("fQty", { n: n + 1 })} inputMode="decimal" placeholder={t("phQty")} value={r.quantity} onChange={(e) => setRow(n, { quantity: e.target.value })} />
+            <input id={`ing-qty-${n}`} dir="ltr" aria-label={t("fQty", { n: n + 1 })} inputMode="decimal" placeholder={t("phQty")} value={r.quantity} onChange={(e) => setRow(n, { quantity: e.target.value })} />
             <input id={`ing-unit-${n}`} dir="auto" aria-label={t("fUnit", { n: n + 1 })} list="units" placeholder={t("phUnit")} value={r.unit} onChange={(e) => setRow(n, { unit: e.target.value })} />
-            <input id={`ing-name-${n}`} dir="auto" aria-label={t("fIng", { n: n + 1 })} placeholder={t("phIng")} value={r.name} onChange={(e) => setRow(n, { name: e.target.value })} />
+            <input id={`ing-name-${n}`} dir="auto" aria-label={t("fIng", { n: n + 1 })} list="ing-names" placeholder={t("phIng")} value={r.name} onChange={(e) => setRow(n, { name: e.target.value })} onKeyDown={(e) => nameKey(e, n)} />
             <button type="button" className="icon-btn" aria-label={t("fRemoveIng", { n: n + 1 })} disabled={v.rows.length === 1} onClick={() => setV({ ...v, rows: v.rows.filter((_, i) => i !== n) })}>
               ✕
             </button>

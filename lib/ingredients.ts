@@ -74,6 +74,12 @@ export function normalizeUnit(unit: string): string {
   return u in ALIASES ? ALIASES[u] : u;
 }
 
+/** True when `word` is a unit this app knows (English or Arabic, e.g. kg, cups, كوب, ملعقة كبيرة, حبة). */
+export function isUnitWord(word: string): boolean {
+  const w = word.trim();
+  return w !== "" && Object.hasOwn(UNITS, normalizeUnit(w));
+}
+
 export function normalizeName(name: string): string {
   if (hasArabic(name)) return normalizeArabic(name);
   const n = name.trim().toLowerCase().replace(/\s+/g, " ");
