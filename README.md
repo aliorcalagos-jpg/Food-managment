@@ -56,8 +56,8 @@ https://claude.ai/artifact/7Y6W3zydkv5T6bH1vcgyZ9 (readable only by its owner).
   visible buttons remain for mouse and keyboard). Landscape iPhone gets compact bars. Swipe rules: `artifact/src/swipe.ts`.
 - Layout: phone first. A bottom bar switches between **This week** (the home screen), **Foods**, **Shopping** and
   **Spending**. Foods are tap cards with a servings stepper; on a phone a sticky bar shows "N foods · M items" with
-  *Start shopping* and opens the what-to-buy sheet, on a wide screen the list sits beside the foods. Ingredients are added
-  in a sheet (type a line, see the live preview, or tap quantity and unit chips); shopping lists have big round ticks, an
+  *Open shopping list* and opens the what-to-buy sheet, on a wide screen the list sits beside the foods. Ingredients are added
+  in a sheet (type a line, see the live preview, or tap quantity and unit chips); shopping lists show each ingredient's picture beside a big round tick, an
   "In the basket" group, price pills and a sticky Bought/Planned total.
 - Arabic and English: a switch in the header (default Arabic, right-to-left; the choice is saved in the artifact `db`
   as `meta/settings`, so every device agrees). UI text lives in `artifact/src/i18n.ts` (a test keeps both tables in
@@ -77,9 +77,11 @@ https://claude.ai/artifact/7Y6W3zydkv5T6bH1vcgyZ9 (readable only by its owner).
   currency, rate and budget and are always merged, never replaced. Logic: `lib/money.ts`, `artifact/src/spending.ts`.
 - This week tab (the home screen): every saved food is a tap row; tap the ones you will cook, set servings with
   the stepper (it defaults to what the recipe makes), and the *What to buy* panel updates at once, merged across foods
-  and grouped by aisle. Each week has its own selection (`week/<Monday>`: `{ picks, listId }`). *Start shopping* saves a
-  snapshot list ("Shopping <date>", with the week as its range) and remembers it on the week; later changes to the
-  selection do not alter that list, and pressing the button again makes a fresh one. Nothing is subtracted for what you
+  and grouped by aisle. Each week has its own selection (`week/<Monday>`: `{ picks, listId }`). The week's shopping list (`lists/week-<Monday>`)
+  is created when the first food is picked and kept in step with every later change (servings, foods added or removed,
+  a food's ingredients edited or the food deleted): `store.syncWeekList` with the pure `mergePlanIntoList`. Lines you
+  ticked or priced, lines you added, and lines you removed (`dismissed`) are respected; an empty week has no list.
+  *Open shopping list* jumps to it. Nothing is subtracted for what you
   already have at home. Logic: `buildBuyList` in `artifact/src/model.ts` (on top of `lib/list-build.ts`).
 - Adding ingredients: type a line in the ingredient sheet ("2 كوب أرز", "500g flour", "1 1/2 cups of milk") and press Enter to
   get a filled, editable row; paste a whole list to add every line. Parsing lives in `lib/ingredient-line.ts` (shared):

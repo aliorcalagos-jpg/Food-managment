@@ -31,6 +31,8 @@ export type ListItem = {
   checked: boolean;
   /** What this whole line cost, in whole kobo (naira x 100); null until a price is entered. */
   price: number | null;
+  /** True for a line the week's foods put on the list (the list keeps those in step with the foods). */
+  fromPlan?: boolean;
 };
 export type ShoppingList = {
   id: string;
@@ -41,6 +43,8 @@ export type ShoppingList = {
   /** The day of the shopping trip (YYYY-MM-DD). Bought items count towards the week of this date. */
   shoppedOn: string;
   items: ListItem[];
+  /** Ids of plan lines the person removed, so they are not added back while foods still need them. */
+  dismissed?: string[];
 };
 
 export type Settings = {
@@ -125,8 +129,10 @@ export function toList(id: string, d: Record<string, unknown>): ShoppingList {
         category: typeof o.category === "string" ? o.category : null,
         checked: o.checked === true,
         price: price(o.price),
+        fromPlan: o.fromPlan === true,
       };
     }),
+    dismissed: arr(d.dismissed).filter((x): x is string => typeof x === "string"),
   };
 }
 
@@ -189,6 +195,7 @@ export function buildBuyList(picks: Pick[], recipes: Recipe[]): BuyList {
     id: `${i.name}|${i.unit}`,
     checked: false,
     price: null,
+    fromPlan: true,
   }));
   return { items, skipped };
 }
@@ -199,10 +206,39 @@ export const toggleItem = (list: ShoppingList, itemId: string, checked: boolean)
   ...list,
   items: list.items.map((i) => (i.id === itemId ? { ...i, checked } : i)),
 });
-export const removeItem = (list: ShoppingList, itemId: string): ShoppingList => ({
-  ...list,
-  items: list.items.filter((i) => i.id !== itemId),
-});
+/** Removes a line. A line the foods put there is remembered as dismissed, so the list does not add it back. */
+export const removeItem = (list: ShoppingList, itemId: string): ShoppingList => {
+  const gone = list.items.find((i) => i.id === itemId);
+  return {
+    ...list,
+    items: list.items.filter((i) => i.id !== itemId),
+    dismissed: gone?.fromPlan ? [...new Set([...(list.dismissed ?? []), itemId])] : list.dismissed,
+  };
+};
+
+/**
+ * Brings a week's list in step with what its foods need. Lines you added stay; lines from the foods are added,
+ * rescaled or dropped, but keep what you did to them (ticked, priced). A line nobody needs any more stays (as an
+ * ordinary line) if it was ticked or priced and goes otherwise. Lines you removed are not added back while a food needs them.
+ */
+export function mergePlanIntoList(list: ShoppingList | undefined, buy: ListItem[]): { items: ListItem[]; dismissed: string[] } {
+  const dismissed = new Set(list?.dismissed ?? []);
+  const needed = new Map(buy.map((i) => [i.id, i]));
+  const items: ListItem[] = [];
+  for (const e of list?.items ?? []) {
+    if (!e.fromPlan) {
+      items.push(e);
+      continue;
+    }
+    const p = needed.get(e.id);
+    if (p && !dismissed.has(e.id)) {
+      items.push({ ...e, name: p.name, quantity: p.quantity, unit: p.unit, category: p.category, fromPlan: true });
+      needed.delete(e.id);
+    } else if (e.checked || e.price !== null) items.push({ ...e, fromPlan: false });
+  }
+  for (const p of needed.values()) if (!dismissed.has(p.id)) items.push({ ...p, fromPlan: true });
+  return { items, dismissed: [...dismissed].filter((id) => buy.some((b) => b.id === id)) };
+}
 export const clearChecked = (list: ShoppingList): ShoppingList => ({ ...list, items: list.items.filter((i) => !i.checked) });
 export const addItem = (list: ShoppingList, item: Omit<ListItem, "id" | "checked" | "price"> & { price?: number | null }): ShoppingList => ({
   ...list,

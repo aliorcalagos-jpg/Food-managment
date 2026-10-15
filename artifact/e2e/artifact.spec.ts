@@ -59,7 +59,7 @@ test("recipes, this week and shopping list end to end", async ({ page }) => {
   await page.getByRole("button", { name: "This week", exact: true }).first().click();
   await expect(page.getByText("Oct 12 – Oct 18, 2026")).toBeVisible();
   await expect(buyPanel(page).getByText("Tap a food to see what you need to buy.")).toBeVisible();
-  await expect(buyPanel(page).getByRole("button", { name: "Start shopping" })).toBeDisabled();
+  await expect(buyPanel(page).getByRole("button", { name: "Open shopping list" })).toBeDisabled();
 
   // tapping a food adds it at once, at the servings its recipe makes
   await foodRow(page, "Pasta").click();
@@ -84,8 +84,8 @@ test("recipes, this week and shopping list end to end", async ({ page }) => {
   await foodRow(page, "Bake").click();
 
   // start shopping: a list is saved and opened
-  await buyPanel(page).getByRole("button", { name: "Start shopping" }).click();
-  await expect(page.getByRole("heading", { name: "Shopping 2026-10-14" })).toBeVisible();
+  await buyPanel(page).getByRole("button", { name: "Open shopping list" }).click();
+  await expect(page.getByRole("heading", { name: /^Shopping ·/ })).toBeVisible();
   await expect(page.getByLabel("1.6 kg spaghetti")).toBeVisible();
   await expect(page.getByLabel("3 cup milk")).toBeVisible();
   await expect(page.getByLabel("4 1/2 tomatoes")).toBeVisible();
@@ -103,7 +103,7 @@ test("recipes, this week and shopping list end to end", async ({ page }) => {
   await expect.poll(async () => ((await stored(page, "lists"))[0].items as { checked: boolean }[]).filter((i) => i.checked).length).toBe(2);
   await setDelay(15);
   await page.reload();
-  await page.getByRole("button", { name: /^Shopping 2026/ }).click();
+  await page.getByRole("button", { name: /^Shopping ·/ }).click();
   await expect(page.getByLabel("3 cup milk")).toBeChecked();
   await expect(page.getByLabel("4 1/2 tomatoes")).toBeChecked();
   await expect(page.getByLabel("1.6 kg spaghetti")).not.toBeChecked();

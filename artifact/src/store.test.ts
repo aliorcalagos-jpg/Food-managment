@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CollectionRef, Db, DocSnap, QuerySnap } from "./runtime";
-import { buildBuyList, setPick } from "./model";
+import { addItem, removeItem, setItemPrice, setPick, toggleItem } from "./model";
 import { createStore } from "./store";
 
 /** A small in-memory stand-in for the claude.ai db: same shape, snapshots delivered asynchronously. */
@@ -95,13 +95,15 @@ describe("the week", () => {
       store.updateWeek(W, (w) => setPick(w, W, "b", 2)),
       store.updateWeek(W, (w) => setPick(w, W, "a", 6)),
     ]);
-    expect(data.week[W]).toEqual({ picks: [{ recipeId: "a", servings: 6 }, { recipeId: "b", servings: 2 }], listId: null });
+    expect(data.week[W]).toEqual({ picks: [{ recipeId: "a", servings: 6 }, { recipeId: "b", servings: 2 }], listId: `week-${W}` });
+    expect(Object.keys(data.lists)).toEqual([`week-${W}`]); // quick edits made exactly one list
     await store.updateWeek(W, (w) => setPick(w, W, "a", null));
     await store.updateWeek(W, (w) => setPick(w, W, "b", null));
     expect(data.week?.[W]).toBeUndefined();
+    expect(data.lists?.[`week-${W}`]).toBeUndefined(); // nothing picked, nothing bought: the list goes too
   });
 
-  it("deleting a food takes it off every week, and keeps a started list", async () => {
+  it("deleting a food takes it off every week and updates the lists", async () => {
     const { db, data } = fakeDb({
       recipes: { a: recipe("A"), b: recipe("B") },
       week: { [W]: { picks: [{ recipeId: "a", servings: 4 }, { recipeId: "b", servings: 2 }], listId: "l1" }, "2026-10-19": { picks: [{ recipeId: "a", servings: 1 }], listId: null } },
@@ -110,21 +112,74 @@ describe("the week", () => {
     await ready(store);
     await store.deleteRecipe("a");
     expect(data.recipes.a).toBeUndefined();
-    expect(data.week[W]).toEqual({ picks: [{ recipeId: "b", servings: 2 }], listId: "l1" });
+    expect(data.week[W]).toEqual({ picks: [{ recipeId: "b", servings: 2 }], listId: `week-${W}` });
     expect(data.week["2026-10-19"]).toBeUndefined();
+    expect((data.lists[`week-${W}`].items as { name: string; quantity: number }[]).map((i) => [i.name, i.quantity])).toEqual([["rice", 0.5]]);
   });
 
-  it("starting shopping saves the list as a snapshot and remembers it on the week", async () => {
+  const names = (data: Record<string, Record<string, Record<string, unknown>>>) => (data.lists[`week-${W}`].items as { name: string }[]).map((i) => i.name);
+
+  it("the first pick creates the week's list, filled from the foods, and later changes follow", async () => {
+    const { db, data } = fakeDb({ recipes: { a: recipe("A"), b: { ...recipe("B"), ingredients: [{ name: "oil", quantity: 2, unit: "tbsp" }] } } });
+    const store = createStore(db);
+    await ready(store);
+    expect(data.lists).toBeUndefined();
+    await store.updateWeek(W, (w) => setPick(w, W, "a", 4));
+    expect(data.lists[`week-${W}`]).toMatchObject({ rangeStart: W, rangeEnd: "2026-10-18", name: `Shopping ${W}` });
+    expect(names(data)).toEqual(["rice"]);
+    await store.updateWeek(W, (w) => setPick(w, W, "b", 2));
+    expect(names(data).sort()).toEqual(["oil", "rice"]);
+    await store.updateWeek(W, (w) => setPick(w, W, "a", 8)); // double the servings of A
+    expect((data.lists[`week-${W}`].items as { name: string; quantity: number }[]).find((i) => i.name === "rice")!.quantity).toBe(2);
+    await store.updateWeek(W, (w) => setPick(w, W, "a", null));
+    expect(names(data)).toEqual(["oil"]);
+  });
+
+  it("keeps what you did: ticks, prices, items you added, bought lines no food needs, and removed lines stay removed", async () => {
+    const { db, data } = fakeDb({ recipes: { a: recipe("A"), b: { ...recipe("B"), ingredients: [{ name: "oil", quantity: 2, unit: "tbsp" }, { name: "salt", quantity: 1, unit: "tsp" }] } } });
+    const store = createStore(db);
+    await ready(store);
+    await store.updateWeek(W, (w) => setPick(w, W, "a", 4));
+    await store.updateWeek(W, (w) => setPick(w, W, "b", 4));
+    const id = `week-${W}`;
+    const idOf = (n: string) => store.getState().lists.find((l) => l.id === id)!.items.find((i) => i.name === n)!.id;
+    await store.updateList(id, (l) => toggleItem(setItemPrice(l, idOf("rice"), 250000), idOf("rice"), true));
+    await store.updateList(id, (l) => addItem(l, { name: "soap", quantity: 1, unit: "", category: "Other" }));
+    await store.updateList(id, (l) => removeItem(l, idOf("salt"))); // you already have salt
+    await store.updateWeek(W, (w) => setPick(w, W, "a", 8)); // rescale: rice keeps its tick and price
+    const items = () => data.lists[id].items as { name: string; quantity: number; checked: boolean; price: number | null; fromPlan: boolean }[];
+    expect(items().find((i) => i.name === "rice")).toMatchObject({ quantity: 2, checked: true, price: 250000, fromPlan: true });
+    expect(items().some((i) => i.name === "salt")).toBe(false); // still removed after the change
+    await store.updateWeek(W, (w) => setPick(w, W, "a", null)); // no food needs rice now, but it was bought
+    expect(items().find((i) => i.name === "rice")).toMatchObject({ checked: true, price: 250000, fromPlan: false });
+    expect(items().map((i) => i.name).sort()).toEqual(["oil", "rice", "soap"]);
+    await store.updateWeek(W, (w) => setPick(w, W, "b", null)); // all foods gone: plan lines go, yours stay, so does the list
+    expect(items().map((i) => i.name).sort()).toEqual(["rice", "soap"]);
+    expect(data.week[W].listId).toBe(id);
+  });
+
+  it("editing or deleting a food updates the list; two weeks make two lists", async () => {
     const { db, data } = fakeDb({ recipes: { a: recipe("A") } });
     const store = createStore(db);
     await ready(store);
     await store.updateWeek(W, (w) => setPick(w, W, "a", 4));
-    const items = buildBuyList([{ recipeId: "a", servings: 4 }], store.getState().recipes).items;
-    const id = await store.startShopping(W, { name: "Shopping", rangeStart: W, rangeEnd: "2026-10-18", createdAt: "2026-10-15T08:00:00Z", shoppedOn: "2026-10-15", items });
-    expect(id).toBeTruthy();
-    expect((data.lists[id!].items as { name: string }[]).map((i) => i.name)).toEqual(["rice"]);
-    expect(data.week[W]).toEqual({ picks: [{ recipeId: "a", servings: 4 }], listId: id });
-    await store.updateWeek(W, (w) => setPick(w, W, "a", 8)); // later changes leave the list alone
-    expect((data.lists[id!].items as { quantity: number }[])[0].quantity).toBe(1);
+    await store.updateWeek("2026-10-19", (w) => setPick(w, "2026-10-19", "a", 4));
+    expect(Object.keys(data.lists).sort()).toEqual([`week-${W}`, "week-2026-10-19"]);
+    await store.saveRecipe({ ...recipe("A"), id: "a", ingredients: [{ name: "lentils", quantity: 1, unit: "cup" }] });
+    expect(names(data)).toEqual(["lentils"]);
+    await store.deleteRecipe("a");
+    expect(data.lists?.[`week-${W}`]).toBeUndefined();
+    expect(data.lists?.["week-2026-10-19"]).toBeUndefined();
+  });
+
+  it("writes nothing when the list is already right", async () => {
+    const { db } = fakeDb({ recipes: { a: recipe("A") } });
+    const store = createStore(db);
+    await ready(store);
+    await store.updateWeek(W, (w) => setPick(w, W, "a", 4));
+    const before = JSON.stringify(store.getState().lists);
+    await store.updateWeek(W, (w) => setPick(w, W, "a", 4));
+    expect(JSON.stringify(store.getState().lists)).toBe(before);
+    expect(store.getState().lists).toHaveLength(1);
   });
 });

@@ -46,7 +46,7 @@ const TABLE: Record<CatalogGroup, Row[]> = {
     ["cucumber", "خيار", L("long", "#4f9d3a")], ["zucchini", "كوسة", L("long", "#6fae48", "#c8e6a0")],
     ["eggplant", "باذنجان", L("eggplant", "#5b2a86", "#5a9e3a")], ["white eggplant", "باذنجان أبيض", L("eggplant", "#efe9d4", "#7cb342")],
     ["okra", "بامية", L("pod", "#6aa84f", "#b7dd8a")], ["green peas", "بازلاء", L("pod", "#7bc043", "#d7f0b0")],
-    ["green beans", "فاصولياء خضراء", L("pod", "#4f9a2e", "#a9d680")], ["fresh broad beans", "فول أخضر", L("pod", "#8bc34a", "#e3f2c1")],
+    ["beans", "فاصولياء", L("pod", "#5aa23a", "#b7dd8a")], ["green beans", "فاصولياء خضراء", L("pod", "#4f9a2e", "#a9d680")], ["fresh broad beans", "فول أخضر", L("pod", "#8bc34a", "#e3f2c1")],
     ["bell pepper", "فلفل رومي", L("bell", "#e53935", "#43a047")], ["green bell pepper", "فلفل رومي أخضر", L("bell", "#43a047", "#2e7d32")],
     ["yellow bell pepper", "فلفل رومي أصفر", L("bell", "#fdd835", "#43a047")], ["hot chili pepper", "فلفل حار", L("chili", "#d32f2f", "#43a047")],
     ["green chili pepper", "فلفل أخضر حار", L("chili", "#4caf50", "#2e7d32")], ["banana pepper", "فلفل بلدي", L("chili", "#9ccc65", "#558b2f")],
@@ -75,7 +75,7 @@ const TABLE: Record<CatalogGroup, Row[]> = {
     ["cabbage", "كرنب", L("head", "#a5d6a7", "#66a36a")], ["red cabbage", "كرنب أحمر", L("head", "#8e3b8a", "#5e2459")],
     ["brussels sprouts", "كرنب بروكسل", L("head", "#7cb342", "#4c7a24")], ["cauliflower", "قرنبيط", L("floret", "#f1eddc", "#8bc34a")],
     ["broccoli", "بروكلي", L("floret", "#388e3c", "#66a36a")], ["parsley", "بقدونس", L("sprig", "#2e7d32")],
-    ["fresh coriander", "كزبرة خضراء", L("sprig", "#43a047")], ["dill", "شبت", L("sprig", "#7cb342")], ["mint", "نعناع", L("sprig", "#26a269")],
+    ["coriander", "كزبرة", L("sprig", "#43a047")], ["fresh coriander", "كزبرة خضراء", L("sprig", "#43a047")], ["dill", "شبت", L("sprig", "#7cb342")], ["mint", "نعناع", L("sprig", "#26a269")],
     ["basil", "ريحان", L("sprig", "#2e7d32")], ["fresh thyme", "زعتر أخضر", L("sprig", "#5b8c5a")], ["rosemary", "روزماري", L("sprig", "#4d7c4d")],
     ["sage", "مريمية", L("sprig", "#8ba888")], ["fenugreek leaves", "حلبة خضراء", L("sprig", "#4caf50")], ["chives", "ثوم معمر", L("sprig", "#3f8f4a")],
     ["green onion", "بصل أخضر", L("stalks", "#5aa83c", "#f4f1e6")], ["green garlic", "ثوم أخضر", L("stalks", "#7cb342", "#f4f1e6")],
@@ -90,7 +90,7 @@ const TABLE: Record<CatalogGroup, Row[]> = {
   ],
   meat: [
     // beef and veal
-    ["minced beef", "لحم بقري مفروم", L("mince", "#b7312c"), "g"], ["beef cubes", "لحم بقري مقطع", L("cubes", "#b7312c"), "g"],
+    ["meat", "لحم", L("roast", "#b7312c", "#e8d6b0"), "g"], ["minced beef", "لحم بقري مفروم", L("mince", "#b7312c"), "g"], ["beef cubes", "لحم بقري مقطع", L("cubes", "#b7312c"), "g"],
     ["beef steak", "ستيك بقري", L("steak", "#b7312c", "#f3e6d2"), "g"], ["beef sirloin", "سيرلوين بقري", L("steak", "#a52a27", "#f3e6d2"), "g"],
     ["beef ribeye", "ريب آي بقري", L("steak", "#c23b33", "#f7efe0"), "g"], ["beef tenderloin", "فيليه بقري", L("fillet", "#c0392b"), "g"],
     ["beef ribs", "ضلوع بقري", L("ribs", "#b7312c", "#f4ecd8"), "g"], ["beef brisket", "صدر بقري", L("roast", "#9c2f2a", "#e8d6b0"), "g"],
@@ -115,7 +115,7 @@ const TABLE: Record<CatalogGroup, Row[]> = {
     ["beef sausages", "نقانق", L("sausage", "#c0603a"), "g"], ["bacon", "لحم مقدد", L("bacon", "#c8594e", "#f6e3d8"), "g"],
   ],
   chicken: [
-    ["whole chicken", "دجاجة كاملة", L("bird", "#f0b872", "#f7dcae"), "piece"], ["chicken breast", "صدور دجاج", L("fillet", "#f4d3b0"), "g"],
+    ["chicken", "دجاج", L("bird", "#f0b872", "#f7dcae"), "g"], ["whole chicken", "دجاجة كاملة", L("bird", "#f0b872", "#f7dcae"), "piece"], ["chicken breast", "صدور دجاج", L("fillet", "#f4d3b0"), "g"],
     ["chicken fillet", "فيليه دجاج", L("fillet", "#f6dcc0"), "g"], ["chicken strips", "شرائح دجاج", L("fillet", "#f0c9a0"), "g"],
     ["chicken thighs", "أفخاذ دجاج", L("drumstick", "#e9a766", "#f4ecd8"), "g"], ["boneless chicken thighs", "أفخاذ دجاج بدون عظم", L("fillet", "#e9b283"), "g"],
     ["chicken drumsticks", "وراك دجاج", L("drumstick", "#ebb26f", "#f4ecd8"), "g"], ["chicken wings", "أجنحة دجاج", L("wing", "#eba96a", "#f4ecd8"), "g"],
@@ -129,7 +129,7 @@ const TABLE: Record<CatalogGroup, Row[]> = {
     ["duck", "بط", L("bird", "#d89556", "#f2d3a4"), "piece"], ["pigeon", "حمام", L("bird", "#d9a46a", "#f2d3a4"), "piece"], ["quail", "سمان", L("bird", "#e0ad72", "#f2d3a4"), "piece"],
   ],
   fish: [
-    ["tilapia", "بلطي", L("fish", "#9fb4bd", "#e0e8ec"), "g"], ["sea bass", "قاروص", L("fish", "#a7b8c4", "#e0e8ec"), "g"], ["sea bream", "دنيس", L("fish", "#d8a7a7", "#f3dede"), "g"],
+    ["fish", "سمك", L("fish", "#9fb4bd", "#e0e8ec"), "g"], ["tilapia", "بلطي", L("fish", "#9fb4bd", "#e0e8ec"), "g"], ["sea bass", "قاروص", L("fish", "#a7b8c4", "#e0e8ec"), "g"], ["sea bream", "دنيس", L("fish", "#d8a7a7", "#f3dede"), "g"],
     ["sardines", "سردين", L("fish", "#aab7c4", "#e0e8ec"), "g"], ["mackerel", "ماكريل", L("fish", "#6f8ea3", "#cfe0ea"), "g"], ["salmon", "سلمون", L("fillet", "#f08c6d"), "g"],
     ["mullet", "بوري", L("fish", "#b5b9a8", "#e3e6d8"), "g"], ["catfish", "قرموط", L("fish", "#6b6f63", "#c9ccc0"), "g"], ["fish fillet", "فيليه سمك", L("fillet", "#f3e0d2"), "g"],
     ["shrimp", "جمبري", L("shrimp", "#f08a6a", "#f6b9a2"), "g"], ["calamari", "كاليماري", L("rings", "#efe3d6"), "g"], ["crab", "سلطعون", L("crab", "#d9533a", "#f08a6a"), "g"],
@@ -153,7 +153,7 @@ const TABLE: Record<CatalogGroup, Row[]> = {
     ["buttermilk", "روب", L("carton", "#f4f6f8", "#7cb342"), "cup"],
   ],
   oils: [
-    ["olive oil", "زيت زيتون", L("bottle", "#8a9a2e", "#3f5a1a"), "tbsp"], ["vegetable oil", "زيت نباتي", L("bottle", "#f2c230", "#d9a010"), "tbsp"],
+    ["oil", "زيت", L("bottle", "#f2c230", "#d9a010"), "tbsp"], ["olive oil", "زيت زيتون", L("bottle", "#8a9a2e", "#3f5a1a"), "tbsp"], ["vegetable oil", "زيت نباتي", L("bottle", "#f2c230", "#d9a010"), "tbsp"],
     ["sunflower oil", "زيت عباد الشمس", L("bottle", "#f0b800", "#2f7d32"), "tbsp"], ["corn oil", "زيت ذرة", L("bottle", "#e8c040", "#f5c518"), "tbsp"],
     ["sesame oil", "زيت سمسم", L("bottle", "#b8782a", "#7a4a12"), "tbsp"], ["coconut oil", "زيت جوز الهند", L("jar", "#f4f1ea", "#cfd8dc"), "tbsp"],
     ["vegetable shortening", "سمن نباتي", L("jar", "#f5eec0", "#d9a441"), "tbsp"],

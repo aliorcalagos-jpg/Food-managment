@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  addItem, buildBuyList, clearChecked, dropRecipeFromWeek, isEmptyWeek, removeItem, setPick,
+  addItem, buildBuyList, mergePlanIntoList, clearChecked, dropRecipeFromWeek, isEmptyWeek, removeItem, setPick,
   toList, toRecipe, toWeekPlan, toggleItem, type Recipe,
   DEFAULT_SETTINGS, fromSettings, setItemPrice, setShoppedOn, toSettings,
 } from "./model";
@@ -80,9 +80,9 @@ describe("buildBuyList", () => {
   it("scales each food to the servings picked, merges and categorises (same numbers as the Next app)", () => {
     const r = buildBuyList(picks, [pasta, bake]);
     expect(r.items.map(({ id, ...rest }) => ({ ...rest, id: typeof id }))).toEqual([
-      { name: "milk", quantity: 3, unit: "cup", category: "Dairy & eggs", checked: false, price: null, id: "string" },
-      { name: "spaghetti", quantity: 1.6, unit: "kg", category: "Pantry", checked: false, price: null, id: "string" },
-      { name: "tomatoes", quantity: 4.5, unit: "", category: "Produce", checked: false, price: null, id: "string" },
+      { name: "milk", quantity: 3, unit: "cup", category: "Dairy & eggs", checked: false, price: null, fromPlan: true, id: "string" },
+      { name: "spaghetti", quantity: 1.6, unit: "kg", category: "Pantry", checked: false, price: null, fromPlan: true, id: "string" },
+      { name: "tomatoes", quantity: 4.5, unit: "", category: "Produce", checked: false, price: null, fromPlan: true, id: "string" },
     ]);
     expect(r.skipped).toEqual([]);
   });
@@ -202,5 +202,42 @@ describe("settings", () => {
   it("writes only the fields that are set", () => {
     expect(fromSettings({ ...DEFAULT_SETTINGS })).toEqual({ currency: "NGN", rate: 1380, weeklyBudget: null });
     expect(fromSettings({ ...DEFAULT_SETTINGS, lang: "ar" })).toMatchObject({ lang: "ar" });
+  });
+});
+
+describe("mergePlanIntoList", () => {
+  const plan = (id: string, name: string, quantity: number, extra: Record<string, unknown> = {}) => ({ id, name, quantity, unit: "", category: "Pantry", checked: false, price: null, fromPlan: true, ...extra });
+  const listOf = (items: ReturnType<typeof plan>[], dismissed: string[] = []) => ({ ...toList("l", {}), items, dismissed });
+
+  it("fills an empty list from what the foods need", () => {
+    const r = mergePlanIntoList(undefined, [plan("rice|", "rice", 2)]);
+    expect(r.items).toEqual([plan("rice|", "rice", 2)]);
+    expect(r.dismissed).toEqual([]);
+  });
+  it("rescales a line and keeps its tick and price", () => {
+    const l = listOf([plan("rice|", "rice", 2, { checked: true, price: 5000 })]);
+    expect(mergePlanIntoList(l, [plan("rice|", "rice", 3)]).items[0]).toMatchObject({ quantity: 3, checked: true, price: 5000 });
+  });
+  it("leaves lines you added alone, and drops plan lines nobody needs unless they were ticked or priced", () => {
+    const manual = { ...plan("m1", "soap", 1), fromPlan: false };
+    const l = listOf([manual, plan("a|", "a", 1), plan("b|", "b", 1, { checked: true }), plan("c|", "c", 1, { price: 100 })]);
+    const r = mergePlanIntoList(l, []);
+    expect(r.items.map((i) => [i.name, i.fromPlan])).toEqual([["soap", false], ["b", false], ["c", false]]);
+  });
+  it("does not add back a line you removed, and forgets it once no food needs it", () => {
+    const l = listOf([], ["salt|"]);
+    expect(mergePlanIntoList(l, [plan("salt|", "salt", 1), plan("oil|", "oil", 1)]).items.map((i) => i.name)).toEqual(["oil"]);
+    expect(mergePlanIntoList(l, [plan("salt|", "salt", 1)]).dismissed).toEqual(["salt|"]);
+    expect(mergePlanIntoList(l, [plan("oil|", "oil", 1)]).dismissed).toEqual([]);
+  });
+  it("removing a plan line remembers it, removing a manual one does not", () => {
+    const l = listOf([plan("a|", "a", 1), { ...plan("m1", "soap", 1), fromPlan: false }]);
+    expect(removeItem(l, "a|").dismissed).toEqual(["a|"]);
+    expect(removeItem(l, "m1").dismissed).toEqual([]);
+  });
+  it("old lists with no plan fields read as hand-made", () => {
+    const l = toList("x", { items: [{ id: "i", name: "milk" }] });
+    expect(l.items[0].fromPlan).toBe(false);
+    expect(l.dismissed).toEqual([]);
   });
 });

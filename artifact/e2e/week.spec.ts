@@ -55,34 +55,121 @@ test("choosing foods updates what to buy at once, scales, and is remembered per 
   await expect(buy(page).getByText("2 كوب أرز")).toBeVisible();
 });
 
-test("start shopping saves a snapshot, remembers it on the week, and later changes leave it alone", async ({ page }) => {
-  await openArtifact(page, { today: TODAY, lang: "en", tab: "week", seed });
+const rec2 = (title: string, servings: number, ingredients: { name: string; quantity: number; unit: string }[]) => ({ title, servings, tags: [], instructions: "", sourceUrl: null, ingredients });
+const planSeed: Seed = {
+  recipes: {
+    rice: rec2("رز مع دجاج", 4, [{ name: "أرز", quantity: 2, unit: "كوب" }, { name: "دجاج", quantity: 1, unit: "كيلو" }]),
+    kofta: rec2("كفتة", 2, [{ name: "رز", quantity: 1, unit: "كوب" }, { name: "طماطم", quantity: 3, unit: "" }]),
+  },
+};
+const goTab = (page: Page, name: string) => page.getByRole("button", { name, exact: true }).click();
+const row = (page: Page, label: string) => page.locator("li.swipe").filter({ has: page.getByLabel(label, { exact: true }) });
+
+test("picking foods creates the week's shopping list at once and keeps it in step, with pictures", async ({ page }) => {
+  await openArtifact(page, { today: TODAY, lang: "en", tab: "week", seed: planSeed });
+  await expect(buy(page).getByRole("button", { name: "Open shopping list" })).toBeDisabled(); // nothing picked, no list
+  expect(await stored(page, "lists")).toEqual([]);
+
   await food(page, "رز مع دجاج").click();
-  await buy(page).getByRole("button", { name: "Start shopping" }).click();
-
-  await expect(page.getByRole("heading", { name: "Shopping 2026-10-14" })).toBeVisible();
-  await expect(page.getByLabel("2 cup أرز")).toBeVisible();
+  await expect(buy(page).getByRole("button", { name: "Open shopping list" })).toBeEnabled();
+  await expect.poll(async () => (await stored(page, "lists")).length).toBe(1);
   const [list] = await stored(page, "lists");
-  expect(list).toMatchObject({ name: "Shopping 2026-10-14", rangeStart: "2026-10-12", rangeEnd: "2026-10-18", shoppedOn: "2026-10-14" });
-  const [week] = await stored(page, "week");
-  expect(week.listId).toBeTruthy();
+  expect(list).toMatchObject({ name: "Shopping · Oct 12 – Oct 18, 2026", rangeStart: "2026-10-12", rangeEnd: "2026-10-18", shoppedOn: TODAY });
+  expect((await stored(page, "week"))[0].listId).toBe("week-2026-10-12");
 
-  // back on This week: the banner, and the live panel keeps following the selection
-  await page.getByRole("button", { name: "This week", exact: true }).first().click();
-  await expect(buy(page).getByText("Shopping list started.")).toBeVisible();
-  await page.getByRole("button", { name: "More servings of رز مع دجاج" }).click();
-  await expect(buy(page).getByText("2 1/2 cup أرز")).toBeVisible();
-  expect(((await stored(page, "lists"))[0].items as { quantity: number }[])[0].quantity).toBe(2); // the saved list did not change
+  await buy(page).getByRole("button", { name: "Open shopping list" }).click();
+  await expect(page.getByRole("heading", { name: /^Shopping ·/ })).toBeVisible();
+  await expect(page.getByLabel("2 cup أرز")).toBeVisible();
+  await expect(page.getByLabel("1 kg دجاج")).toBeVisible();
+  await expect(row(page, "2 cup أرز").locator("svg.food-icon")).toBeVisible(); // the picture beside each item
+  await expect(row(page, "1 kg دجاج").locator("svg.food-icon")).toBeVisible();
 
-  // a second press makes a fresh list from the current selection
-  await buy(page).getByRole("button", { name: "Start a new list from this" }).click();
-  await expect.poll(async () => (await stored(page, "lists")).length).toBe(2);
+  // a second food: its lines are added and rice adds up
+  await goTab(page, "This week");
+  await food(page, "كفتة").click();
+  await goTab(page, "Shopping");
+  await page.getByRole("button", { name: /Shopping ·/ }).click();
+  await expect(page.getByLabel("3 cup أرز")).toBeVisible();
+  await expect(page.getByLabel("3 طماطم")).toBeVisible();
 
-  // the banner survives a reload, and "Open it" goes to the list
+  // tick and price rice, add your own item
+  await page.getByLabel("3 cup أرز").check();
+  await page.getByLabel("Price for أرز").fill("1500");
+  await page.getByLabel("Price for أرز").blur();
+  await page.getByLabel("Add an item").fill("2 tomato");
+  await page.getByRole("button", { name: "Add", exact: true }).click();
+  await expect(row(page, "2 tomato").locator("svg.food-icon")).toBeVisible(); // typed by hand but in the ingredient list
+  await page.getByLabel("Add an item").fill("1 soap");
+  await page.getByRole("button", { name: "Add", exact: true }).click();
+  await expect(row(page, "1 soap").locator("svg.food-icon")).toHaveCount(0); // not in the list: no picture
+
+  // change servings of the first food: everything rescales, the tick and price stay
+  await goTab(page, "This week");
+  await page.getByRole("button", { name: "More servings of رز مع دجاج" }).click(); // 4 -> 5
+  await goTab(page, "Shopping");
+  await page.getByRole("button", { name: /Shopping ·/ }).click();
+  await expect(page.getByLabel("3 1/2 cup أرز")).toBeChecked();
+  await expect(page.getByLabel("Price for أرز")).toHaveValue("1500");
+  await expect(page.getByLabel("1 1/4 kg دجاج")).toBeVisible();
+  await expect(page.getByLabel("1 soap")).toBeVisible();
+
+  // unpick the second food: its own line goes, yours stay
+  await goTab(page, "This week");
+  await food(page, "كفتة").click();
+  await goTab(page, "Shopping");
+  await page.getByRole("button", { name: /Shopping ·/ }).click();
+  await expect(page.getByLabel("3 طماطم")).toHaveCount(0);
+  await expect(page.getByLabel("2 1/2 cup أرز")).toBeChecked();
+  await expect(page.getByLabel("1 soap")).toBeVisible();
+
+  // survives a reload
   await page.reload();
-  await page.getByRole("button", { name: "This week", exact: true }).first().click();
-  await buy(page).getByRole("button", { name: "Open it" }).click();
-  await expect(page.getByRole("heading", { name: /^Shopping/ })).toBeVisible();
+  await page.getByRole("button", { name: /Shopping ·/ }).click();
+  await expect(page.getByLabel("2 1/2 cup أرز")).toBeChecked();
+  expect(await page.evaluate(() => (window as unknown as { __overlaps: number }).__overlaps)).toBe(0);
+});
+
+test("a line you remove stays removed, and an empty week has no list", async ({ page }) => {
+  await openArtifact(page, { today: TODAY, lang: "en", tab: "week", seed: planSeed });
+  await food(page, "رز مع دجاج").click();
+  await goTab(page, "Shopping");
+  await page.getByRole("button", { name: /Shopping ·/ }).click();
+  await page.getByRole("button", { name: "Remove دجاج" }).click(); // you already have chicken
+  await expect(page.getByLabel("1 kg دجاج")).toHaveCount(0);
+
+  await goTab(page, "This week");
+  await page.getByRole("button", { name: "More servings of رز مع دجاج" }).click();
+  await food(page, "كفتة").click();
+  await goTab(page, "Shopping");
+  await page.getByRole("button", { name: /Shopping ·/ }).click();
+  await expect(page.getByLabel("3 1/2 cup أرز")).toBeVisible(); // the list follows the foods (rice 4 -> 5 servings, plus kofta)...
+  await expect(page.locator("li.swipe", { hasText: "دجاج" })).toHaveCount(0); // ...but chicken stays off
+
+  // nothing picked and nothing bought: the list goes away
+  await goTab(page, "This week");
+  await food(page, "كفتة").click();
+  await food(page, "رز مع دجاج").click();
+  await goTab(page, "Shopping");
+  await expect(page.getByText("No lists yet")).toBeVisible();
+  expect(await stored(page, "lists")).toEqual([]);
+});
+
+test("editing a food's ingredients updates the week's list; each week has its own", async ({ page }) => {
+  await openArtifact(page, { today: TODAY, lang: "en", tab: "week", seed: planSeed });
+  await food(page, "كفتة").click();
+  await page.getByRole("button", { name: "Next" }).click();
+  await food(page, "كفتة").click();
+  await expect.poll(async () => (await stored(page, "lists")).map((l) => l.rangeStart).sort()).toEqual(["2026-10-12", "2026-10-19"]);
+
+  await goTab(page, "Foods");
+  await page.getByRole("button", { name: /كفتة/ }).click();
+  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  await page.getByRole("button", { name: "Add ingredient" }).click();
+  await page.getByLabel("Type an ingredient").fill("2 كوب عدس");
+  await page.getByLabel("Type an ingredient").press("Enter");
+  await page.getByRole("button", { name: "Done", exact: true }).click();
+  await page.getByRole("button", { name: "Save recipe" }).click();
+  await expect.poll(async () => (await stored(page, "lists")).map((l) => (l.items as { name: string }[]).map((i) => i.name).includes("عدس"))).toEqual([true, true]);
 });
 
 test("a food with no ingredients says so and jumps to its form; deleting a food removes it from the week", async ({ page }) => {

@@ -1,9 +1,11 @@
 import { useSyncExternalStore } from "react";
+import { addDays, parseISODate, toISODate } from "../../lib/week";
 import {
-  DEFAULT_SETTINGS, dropRecipeFromWeek, fromSettings, isEmptyWeek, newId, toList, toRecipe, toSettings, toWeekPlan,
+  buildBuyList, DEFAULT_SETTINGS, dropRecipeFromWeek, mergePlanIntoList, fromSettings, isEmptyWeek, newId, toList, toRecipe, toSettings, toWeekPlan,
   type Recipe, type Settings, type ShoppingList, type WeekPlan,
 } from "./model";
 import type { Db, DocSnap } from "./runtime";
+import { todayISO } from "./today";
 
 export type State = {
   status: "loading" | "ready" | "unavailable";
@@ -140,6 +142,43 @@ export function createStore(db: Db | null) {
     return next;
   }
 
+  let namer: (weekStart: string) => string = (w) => `Shopping ${w}`;
+
+  const writeWeek = (weekStart: string, edit: (week: WeekPlan | undefined) => WeekPlan) =>
+    write("week", weekStart, () => {
+      const next = edit(state.weeks.find((w) => w.weekStart === weekStart));
+      return isEmptyWeek(next) ? null : { picks: next.picks, listId: next.listId };
+    });
+
+  /** The one shopping list of a week has a fixed id, so quick successive edits can never make two. */
+  const weekListId = (weekStart: string) => `week-${weekStart}`;
+  async function syncWeekList(weekStart: string): Promise<void> {
+    const id = weekListId(weekStart);
+    await write("lists", id, () => {
+      const picks = state.weeks.find((w) => w.weekStart === weekStart)?.picks ?? [];
+      const cur = state.lists.find((l) => l.id === id);
+      const { items, dismissed } = mergePlanIntoList(cur, buildBuyList(picks, state.recipes).items);
+      if (!cur && items.length === 0) return undefined; // nothing to buy yet: no list
+      if (cur && picks.length === 0 && items.length === 0) return null; // nothing left to buy and no foods: the list goes
+      const { id: _id, ...rest } = cur ?? ({} as ShoppingList);
+      void _id;
+      const start = parseISODate(weekStart);
+      const base = cur
+        ? rest
+        : { name: namer(weekStart), rangeStart: weekStart, rangeEnd: start ? toISODate(addDays(start, 6)) : null, createdAt: new Date().toISOString(), shoppedOn: todayISO() };
+      const next = { ...base, items, dismissed };
+      return cur && sameDoc(next, rest) ? undefined : next;
+    });
+    await write("week", weekStart, () => {
+      const w = state.weeks.find((x) => x.weekStart === weekStart);
+      if (!w) return undefined;
+      const wanted = state.lists.some((l) => l.id === id) ? id : null;
+      if (w.listId === wanted) return undefined;
+      const next = { ...w, listId: wanted };
+      return isEmptyWeek(next) ? null : { picks: next.picks, listId: next.listId };
+    });
+  }
+
   const store = {
     subscribe(l: () => void) {
       listeners.add(l);
@@ -148,35 +187,35 @@ export function createStore(db: Db | null) {
     getState: () => state,
     dismissError: () => set({ error: null }),
 
-    /** Resolves the recipe id, or null if it could not be saved. */
+    /** Names the list made for a week (the page registers a language-aware one). */
+    setListNamer(fn: (weekStart: string) => string) {
+      namer = fn;
+    },
+
+    /** Resolves the recipe id, or null if it could not be saved. The lists of weeks that use the food follow its new ingredients. */
     async saveRecipe(r: Omit<Recipe, "id"> & { id?: string }): Promise<string | null> {
       const { id = newId(), ...data } = r;
-      return (await write("recipes", id, () => data)) ? id : null;
+      if (!(await write("recipes", id, () => data))) return null;
+      for (const w of state.weeks.filter((x) => x.picks.some((p) => p.recipeId === id))) await syncWeekList(w.weekStart);
+      return id;
     },
 
-    /** Removes the food and takes it off every week it was chosen for. */
+    /** Removes the food, takes it off every week it was chosen for, and updates those weeks' lists. */
     async deleteRecipe(id: string) {
-      for (const week of state.weeks.filter((w) => w.picks.some((p) => p.recipeId === id))) {
-        await store.updateWeek(week.weekStart, (cur) => dropRecipeFromWeek(cur ?? week, id));
-      }
+      const affected = state.weeks.filter((w) => w.picks.some((p) => p.recipeId === id));
+      for (const week of affected) await writeWeek(week.weekStart, (cur) => dropRecipeFromWeek(cur ?? week, id));
       await write("recipes", id, () => null);
+      for (const week of affected) await syncWeekList(week.weekStart);
     },
-
-    /** Edits the foods chosen for one week. A week with nothing chosen and no list started is deleted, not stored empty. */
-    updateWeek: (weekStart: string, edit: (week: WeekPlan | undefined) => WeekPlan) =>
-      write("week", weekStart, () => {
-        const next = edit(state.weeks.find((w) => w.weekStart === weekStart));
-        return isEmptyWeek(next) ? null : { picks: next.picks, listId: next.listId };
-      }),
 
     /**
-     * Saves a shopping list made from a week's foods and remembers it on that week. Resolves the list id, or
-     * null if it could not be saved (the week is then left as it was).
+     * Edits the foods chosen for one week, then brings that week's shopping list in step: the list is created when
+     * the first food is picked and follows every later change. A week with nothing chosen and no list is deleted.
      */
-    async startShopping(weekStart: string, list: Omit<ShoppingList, "id">): Promise<string | null> {
-      const id = await store.createList(list);
-      if (id) await store.updateWeek(weekStart, (cur) => ({ ...(cur ?? { weekStart, picks: [] }), listId: id }));
-      return id;
+    async updateWeek(weekStart: string, edit: (week: WeekPlan | undefined) => WeekPlan) {
+      const ok = await writeWeek(weekStart, edit);
+      await syncWeekList(weekStart);
+      return ok;
     },
 
     /** Resolves the new list's id, or null if it could not be saved. */

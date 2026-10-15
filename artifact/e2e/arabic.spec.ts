@@ -101,8 +101,8 @@ test("the user's five dishes: add ingredients in Arabic, plan, and get one merge
   await expect(buy.locator('li bdi[dir="ltr"]', { hasText: "1 1/2" })).toHaveCount(1); // quantities are left-to-right runs
 
   // start shopping: the list opens with an Arabic default name
-  await buy.getByRole("button", { name: "ابدأ التسوق" }).click();
-  await expect(page.getByRole("heading", { name: /^تسوق / })).toBeVisible();
+  await buy.getByRole("button", { name: "افتح قائمة التسوق" }).click();
+  await expect(page.getByRole("heading", { name: /^تسوق ·/ })).toBeVisible();
   await expect(page.getByLabel("3 كوب أرز")).toBeVisible();
   await expect(page.getByText("تم: 0 من 4")).toBeVisible();
 
@@ -120,7 +120,7 @@ test("a food with no ingredients is named, can be fixed from This week, and the 
   });
   const buy = page.getByRole("complementary");
   await expect(buy.getByText("الأطباق المختارة بلا مكوّنات بعد.")).toBeVisible();
-  await expect(buy.getByRole("button", { name: "ابدأ التسوق" })).toBeDisabled();
+  await expect(buy.getByRole("button", { name: "افتح قائمة التسوق" })).toBeDisabled();
   expect(await stored(page, "lists")).toEqual([]); // nothing half-made was saved
   await page.locator("li.pick", { hasText: "يخنة بازيلاء" }).getByRole("button", { name: "أضف المكوّنات" }).click(); // jumps to that dish's edit form
   await expect(page.getByLabel("الاسم", { exact: true })).toHaveValue(/^يخنة/);

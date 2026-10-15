@@ -20,7 +20,7 @@ test("opens on This week with a bottom bar; the summary bar opens the what-to-bu
 
   const bar = page.locator(".sticky-bar");
   await expect(bar).toContainText("لم تختر شيئًا بعد");
-  await expect(bar.getByRole("button", { name: "ابدأ التسوق" })).toBeDisabled();
+  await expect(bar.getByRole("button", { name: "افتح قائمة التسوق" })).toBeDisabled();
 
   await page.getByRole("button", { name: "رز مع دجاج", exact: true }).click();
   await page.getByRole("button", { name: "كفتة", exact: true }).click();
@@ -41,8 +41,8 @@ test("opens on This week with a bottom bar; the summary bar opens the what-to-bu
   );
   expect(tooSmall).toEqual([]);
 
-  await bar.getByRole("button", { name: "ابدأ التسوق" }).click();
-  await expect(page.getByRole("heading", { name: /^تسوق / })).toBeVisible();
+  await bar.getByRole("button", { name: "افتح قائمة التسوق" }).click();
+  await expect(page.getByRole("heading", { name: /^تسوق ·/ })).toBeVisible();
   await expect.poll(async () => (await stored(page, "lists")).length).toBe(1);
 });
 

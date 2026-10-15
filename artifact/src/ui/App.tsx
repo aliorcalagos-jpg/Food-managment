@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { DEFAULT_LANG, I18nContext, makeI18n, type Lang } from "../i18n";
 import { MoneyContext } from "../money-context";
+import { addDays, formatRange, parseISODate } from "../../../lib/week";
 import { todayISO } from "../today";
 import { useStore, type Store } from "../store";
 import { Empty, Icon } from "./common";
@@ -56,13 +57,26 @@ export function App({ store }: { store: Store }) {
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
+  // the week's shopping list is named in the current language
+  useEffect(() => {
+    store.setListNamer((weekStart) => {
+      const a = parseISODate(weekStart);
+      return a ? makeI18n(lang).t("weekListName", { range: formatRange(a, addDays(a, 6), lang) }) : weekStart;
+    });
+  }, [store, lang]);
+
   useEffect(() => {
     document.documentElement.lang = lang;
     document.documentElement.dir = dir;
   }, [lang, dir]);
 
+  // Jumping from a shopping trip on the Expenses tab opens that list; the key remounts the Lists tab on it.
+  const [open, setOpen] = useState<{ id: string | null; key: number }>({ id: null, key: 0 });
   const choose = (next: Tab) => {
     setTab(next);
+    // a screen opened by a jump (a list, a food's form) is only opened once: coming back later shows the index
+    if (next !== "lists") setOpen((o) => (o.id ? { ...o, id: null } : o));
+    if (next !== "recipes") setEdit((e) => (e.id || e.isNew ? { ...e, id: null, isNew: false } : e));
     try {
       localStorage.setItem(TAB_KEY, next);
     } catch {
@@ -80,8 +94,6 @@ export function App({ store }: { store: Store }) {
     void store.updateSettings({ lang: next });
   };
 
-  // Jumping from a shopping trip on the Expenses tab opens that list; the key remounts the Lists tab on it.
-  const [open, setOpen] = useState<{ id: string | null; key: number }>({ id: null, key: 0 });
   const openList = (id: string) => {
     setOpen((o) => ({ id, key: o.key + 1 }));
     choose("lists");

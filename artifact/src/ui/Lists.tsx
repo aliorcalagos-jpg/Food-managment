@@ -11,7 +11,9 @@ import { useMoney } from "../money-context";
 import { listTotals } from "../spending";
 import type { Store } from "../store";
 import { todayISO } from "../today";
+import { catalogItemFor, type Look } from "../../../lib/catalog";
 import { Arrow, ConfirmAction, Empty, FieldError, ItemLabel, Money, SwipeRow } from "./common";
+import { FoodIcon } from "./FoodIcon";
 
 type View = { kind: "index" } | { kind: "detail"; id: string };
 
@@ -136,7 +138,7 @@ function ListDetail({ store, list, onBack }: { store: Store; list: ShoppingList 
       onDelete={() => void update((l) => removeItem(l, i.id))}
       onToggle={() => void update((l) => toggleItem(l, i.id, !i.checked))}
     >
-      <ItemCheck checked={i.checked} label={<ItemLabel quantity={i.quantity} unit={i.unit} name={i.name} />} onChange={(next) => update((l) => toggleItem(l, i.id, next))} />
+      <ItemCheck checked={i.checked} icon={catalogItemFor(i.name)?.look} label={<ItemLabel quantity={i.quantity} unit={i.unit} name={i.name} />} onChange={(next) => update((l) => toggleItem(l, i.id, next))} />
       <PriceInput id={i.id} name={i.name} price={i.price} onCommit={(p) => void update((l) => setItemPrice(l, i.id, p))} />
       <button type="button" className="icon-btn row-remove" aria-label={t("removeItem", { name: i.name })} onClick={() => void update((l) => removeItem(l, i.id))}>
         ✕
@@ -251,7 +253,7 @@ function ListDetail({ store, list, onBack }: { store: Store; list: ShoppingList 
  * Flips at once and saves in the background. It shows the viewer's tap until the save settles,
  * then goes back to the stored value, so a failed save un-ticks the box instead of lying.
  */
-function ItemCheck({ checked, label, onChange }: { checked: boolean; label: ReactNode; onChange: (next: boolean) => Promise<unknown> }) {
+function ItemCheck({ checked, label, icon, onChange }: { checked: boolean; label: ReactNode; icon?: Look; onChange: (next: boolean) => Promise<unknown> }) {
   const [pending, setPending] = useState<boolean | null>(null);
   return (
     <label className="check">
@@ -263,6 +265,7 @@ function ItemCheck({ checked, label, onChange }: { checked: boolean; label: Reac
           void onChange(e.target.checked).then(() => setPending(null));
         }}
       />
+      {icon ? <FoodIcon look={icon} size={34} /> : <span className="ing-icon-gap" aria-hidden="true" />}
       <span className={(pending ?? checked) ? "done num" : "num"}>{label}</span>
     </label>
   );

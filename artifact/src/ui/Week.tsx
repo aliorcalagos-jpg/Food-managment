@@ -37,40 +37,19 @@ export function Week({
   const pickOf = new Map(picks.map((p) => [p.recipeId, p.servings]));
   const sorted = [...recipes].sort((a, b) => a.title.localeCompare(b.title, lang));
   const buy = buildBuyList(picks, recipes);
-  const started = week?.listId ? lists.find((l) => l.id === week.listId) : undefined;
   const chosenCount = sorted.filter((r) => pickOf.has(r.id)).length;
 
   const choose = (recipe: Recipe, servings: number | null) => void store.updateWeek(weekStart, (w) => setPick(w, weekStart, recipe.id, servings));
 
-  async function startShopping() {
-    if (buy.items.length === 0) return;
-    const id = await store.startShopping(weekStart, {
-      name: t("tripDefaultName", { date: lang === "ar" ? `\u2066${today}\u2069` : today }),
-      rangeStart: weekStart,
-      rangeEnd: toISODate(addDays(monday, 6)),
-      createdAt: new Date().toISOString(),
-      shoppedOn: today,
-      items: buy.items,
-    });
-    if (id) {
-      setSheet(false);
-      onOpenList(id);
-    }
-  }
+  const list = week?.listId ? lists.find((l) => l.id === week.listId) : undefined;
 
-  const startButton = (
-    <button type="button" className={started && wide ? "btn ghost" : "btn primary"} disabled={buy.items.length === 0} onClick={() => void startShopping()}>
-      {started ? t("startAnother") : t("startShopping")}
+  // The week's list builds itself as foods are chosen; this opens it.
+  const openButton = (
+    <button type="button" className="btn primary" disabled={!list} onClick={() => list && onOpenList(list.id)}>
+      {t("openShoppingList")}
     </button>
   );
-  const startedBanner = started && (
-    <p className="banner" role="status">
-      <span>{t("startedBanner")}</span>
-      <button type="button" className="link" onClick={() => onOpenList(started.id)}>
-        {t("openTheList")}
-      </button>
-    </p>
-  );
+  const syncNote = <p className="muted hint">{t("syncNote")}</p>;
 
   return (
     <section aria-labelledby="week-h" className="stack">
@@ -161,8 +140,8 @@ export function Week({
               </span>
             </div>
             <BuyBody buy={buy} chosen={picks.length} />
-            {startedBanner}
-            {startButton}
+            {openButton}
+            {syncNote}
           </aside>
         )}
       </div>
@@ -178,14 +157,14 @@ export function Week({
                   {buy.items.length > 0 && <> · {t("barSee")}</>}
                 </span>
               </button>
-              {startButton}
+              {openButton}
             </div>
           </div>
           {sheet && (
             <Sheet title={t("buyH")} onClose={() => setSheet(false)}>
               <BuyBody buy={buy} chosen={picks.length} />
-              {startedBanner}
-              {startButton}
+              {syncNote}
+              {openButton}
             </Sheet>
           )}
         </>
