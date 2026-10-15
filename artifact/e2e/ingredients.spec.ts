@@ -111,3 +111,96 @@ test("Escape closes the sheet and keeps what was added", async ({ page }) => {
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(page.locator(".ing-line")).toHaveCount(1);
 });
+
+test("choose from the list: groups, search, the usual unit, custom names, and the right aisles", async ({ page }) => {
+  await openArtifact(page, { today: TODAY, lang: "ar", tab: "week", seed });
+  await page.locator("li.pick", { hasText: "يخنة بازيلاء" }).getByRole("button", { name: "أضف المكوّنات" }).click();
+  const line = page.getByLabel("اكتب مكوّنًا");
+  const groups = page.getByRole("group", { name: "اختر من القائمة" });
+  const pickItem = (name: string) => page.locator(".catalog-items").getByRole("button", { name, exact: true });
+
+  // vegetables are shown first; tap one, then a quantity
+  await expect(page.locator(".catalog-items").getByRole("button")).not.toHaveCount(0);
+  await pickItem("طماطم").click();
+  await expect(line).toHaveValue("طماطم");
+  await expect(page.getByText("أضف كمية")).toBeVisible(); // the quantity is never filled in for you
+  await expect(page.getByRole("button", { name: "إضافة", exact: true })).toBeDisabled();
+  await page.getByRole("group", { name: "الكمية" }).getByRole("button", { name: "3", exact: true }).click();
+  await expect(line).toHaveValue("3 طماطم");
+  await line.press("Enter");
+
+  // another group; the usual unit (grams for chicken) is offered and applied with the quantity
+  await groups.getByRole("button", { name: "دجاج", exact: true }).click();
+  await expect(groups.getByRole("button", { name: "دجاج", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await pickItem("صدور دجاج").click();
+  await expect(line).toHaveValue("صدور دجاج");
+  await expect(page.getByRole("group", { name: "الوحدة" }).getByRole("button", { name: "جم", exact: true })).toHaveClass(/suggested/);
+  await page.getByRole("group", { name: "الكمية" }).getByRole("button", { name: "500", exact: true }).click();
+  await expect(line).toHaveValue("500 جم صدور دجاج");
+  await line.press("Enter");
+
+  // typing searches every group, spelling folded; the group of each match is shown
+  await line.fill("ارز");
+  const results = page.getByRole("group", { name: "مكوّنات مطابقة" });
+  await expect(results.getByRole("button", { name: /^أرز/ }).first()).toContainText("بقوليات وحبوب");
+  await expect(results.getByRole("button", { name: /أرز بسمتي/ })).toBeVisible();
+  await expect(groups).toHaveCount(0); // the group row gives way to search results
+  await line.fill("دجاج");
+  await expect(results.getByRole("button")).toContainText(["صدور دجاج"]);
+  expect(await results.getByRole("button").count()).toBeGreaterThan(8);
+
+  // a name that is not in the list is added as typed
+  await line.fill("2 كوب فول سوداني");
+  await expect(page.getByText("غير موجود في القائمة")).toBeVisible();
+  await line.press("Enter");
+  await page.getByRole("button", { name: "تم", exact: true }).click();
+  await page.getByRole("button", { name: "حفظ الوصفة" }).click();
+  await expect
+    .poll(async () => (await stored(page, "recipes")).find((r) => r.title === "يخنة بازيلاء")?.ingredients)
+    .toEqual([
+      { name: "طماطم", quantity: 3, unit: "" },
+      { name: "صدور دجاج", quantity: 500, unit: "جم" },
+      { name: "فول سوداني", quantity: 2, unit: "كوب" },
+    ]);
+
+  // on the shopping list they land in the right aisles
+  await page.getByRole("button", { name: "هذا الأسبوع", exact: true }).click();
+  await page.locator("li.pick", { hasText: "يخنة بازيلاء" }).getByRole("button", { name: "يخنة بازيلاء", exact: true }).click();
+  expect(await page.getByRole("complementary").locator("section.aisle").evaluateAll((els) => els.map((e) => e.getAttribute("aria-label")))).toEqual([
+    "الخضار والفاكهة",
+    "اللحوم والأسماك",
+    "المؤن", // فول سوداني is a pantry item
+  ]);
+});
+
+test("in English the list shows English names and keeps them as picked", async ({ page }) => {
+  await openArtifact(page, { today: TODAY, lang: "en", tab: "recipes", seed });
+  await page.getByRole("button", { name: "New food" }).click();
+  await page.getByRole("button", { name: "Add ingredient" }).click();
+  await page.getByRole("group", { name: "Choose from the list" }).getByRole("button", { name: "Meat", exact: true }).click();
+  await page.locator(".catalog-items").getByRole("button", { name: "minced beef", exact: true }).click();
+  await page.getByRole("group", { name: "Quantity" }).getByRole("button", { name: "250", exact: true }).click();
+  await expect(page.getByLabel("Type an ingredient")).toHaveValue("250 g minced beef");
+  await page.getByLabel("Type an ingredient").press("Enter");
+  await page.getByRole("button", { name: "Done", exact: true }).click();
+  await page.getByLabel("Title", { exact: true }).fill("Kofta tray");
+  await page.getByRole("button", { name: "Save recipe" }).click();
+  await expect
+    .poll(async () => (await stored(page, "recipes")).find((r) => r.title === "Kofta tray")?.ingredients)
+    .toEqual([{ name: "minced beef", quantity: 250, unit: "g" }]);
+});
+
+for (const width of [320, 390]) {
+  test(`the list fits a ${width}px phone with comfortable chips`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 700 });
+    await openArtifact(page, { today: TODAY, lang: "ar", tab: "recipes", seed });
+    await page.getByRole("button", { name: "طبق جديد" }).click();
+    await page.getByRole("button", { name: "إضافة مكوّن" }).click();
+    for (const g of ["خضار", "لحوم", "دجاج", "أسماك ومأكولات بحرية", "بقوليات وحبوب", "ألبان وبيض", "زيوت ودهون", "بهارات وصلصات"]) {
+      await page.getByRole("group", { name: "اختر من القائمة" }).getByRole("button", { name: g, exact: true }).click();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), g).toBe(true);
+      const small = await page.locator(".catalog-items .chip").evaluateAll((els) => els.filter((e) => e.getBoundingClientRect().height < 44).length);
+      expect(small, g).toBe(0);
+    }
+  });
+}

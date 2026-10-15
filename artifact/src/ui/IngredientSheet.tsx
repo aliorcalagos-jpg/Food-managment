@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import { normalizeArabic } from "../../../lib/arabic";
+import { CATALOG, catalogName, GROUPS, searchCatalog, type CatalogGroup, type CatalogItem, type CatalogUnit } from "../../../lib/catalog";
 import { parseIngredientLine, splitLines, type IngredientFields } from "../../../lib/ingredient-line";
 import { normalizeName } from "../../../lib/ingredients";
 import { formatQuantity, parseQuantity } from "../../../lib/quantity";
@@ -14,6 +15,17 @@ const UNIT_CHIPS: Record<Lang, string[]> = {
   ar: ["كوب", "جم", "كيلو", "حبة", "ملعقة كبيرة", "ملعقة صغيرة", "مل", "لتر"],
   en: ["cup", "g", "kg", "piece", "tbsp", "tsp", "ml", "l"],
 };
+const CANON_UNITS: CatalogUnit[] = ["cup", "g", "kg", "piece", "tbsp", "tsp", "ml", "l"]; // same order as UNIT_CHIPS
+const GROUP_LABEL = {
+  vegetables: "catVegetables",
+  meat: "catMeat",
+  chicken: "catChicken",
+  fish: "catFish",
+  legumes: "catLegumes",
+  dairy: "catDairy",
+  oils: "catOils",
+  spices: "catSpices",
+} as const;
 const fold = (s: string) => normalizeArabic(s).toLowerCase();
 const compose = (f: IngredientFields) => [f.quantity, f.unit, f.name].filter(Boolean).join(" ");
 const quantityOk = (q: string) => {
@@ -48,6 +60,9 @@ export function IngredientSheet({
   const [f, setF] = useState<IngredientFields>(start);
   const [added, setAdded] = useState(0);
   const input = useRef<HTMLTextAreaElement>(null);
+  const [group, setGroup] = useState<CatalogGroup>("vegetables");
+  // the usual unit of the last picked item: offered on its chip, and applied when a quantity is tapped
+  const [usual, setUsual] = useState("");
 
   const known = useMemo(() => new Map(knownNames.map((n) => [normalizeName(n), n])), [knownNames]);
   const snap = (name: string) => known.get(normalizeName(name)) ?? name;
@@ -68,6 +83,20 @@ export function IngredientSheet({
     return knownNames.filter((n) => (term ? fold(n).includes(term) && fold(n) !== term : true)).slice(0, 8);
   }, [knownNames, f.name]);
 
+  // Typing searches the whole list; with nothing typed the chosen group is shown.
+  const typed = f.name.trim();
+  const found = useMemo(() => (typed ? searchCatalog(typed) : []), [typed]);
+  const shown: CatalogItem[] = typed ? found : CATALOG.filter((i) => i.group === group);
+
+  /** Picks a listed ingredient: its name, and its usual unit when none is chosen yet. The quantity is left for you. */
+  function pick(item: CatalogItem) {
+    const usualUnit = item.unit ? UNIT_CHIPS[lang][CANON_UNITS.indexOf(item.unit)] : "";
+    // a unit can only sit in the line once there is a quantity before it, so until then it is only suggested
+    set({ ...f, name: catalogName(item, lang), unit: f.unit || (f.quantity ? usualUnit : "") });
+    setUsual(f.unit || !usualUnit ? "" : usualUnit);
+    input.current?.focus();
+  }
+
   function add() {
     if (multi) {
       const parsed = splitLines(text).map(parseIngredientLine).filter((r) => r.name || r.quantity || r.unit).map((r) => ({ ...r, name: snap(r.name) }));
@@ -85,6 +114,7 @@ export function IngredientSheet({
     } else return;
     setText("");
     setF({ quantity: "", unit: "", name: "" });
+    setUsual("");
     input.current?.focus();
   }
 
@@ -148,10 +178,31 @@ export function IngredientSheet({
       {!multi && (
         <>
           <div className="sheet-section">
+            <h4>{t("catalogH")}</h4>
+            {!typed && (
+              <div className="chip-row" role="group" aria-label={t("catalogH")}>
+                {GROUPS.map((g) => (
+                  <button key={g} type="button" className="chip" aria-pressed={g === group} onClick={() => setGroup(g)}>
+                    {t(GROUP_LABEL[g])}
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="chips catalog-items" role="group" aria-label={typed ? t("catSearch") : t(GROUP_LABEL[group])}>
+              {shown.map((item) => (
+                <button key={`${item.group}:${item.en}`} type="button" className="chip" aria-pressed={f.name === catalogName(item, lang)} onClick={() => pick(item)}>
+                  <bdi>{catalogName(item, lang)}</bdi>
+                  {typed && <small className="sub"> · {t(GROUP_LABEL[item.group])}</small>}
+                </button>
+              ))}
+            </div>
+            {typed && found.length === 0 && <p className="muted hint">{t("catNoMatch")}</p>}
+          </div>
+          <div className="sheet-section">
             <h4>{t("quickQtyH")}</h4>
             <div className="chip-row" role="group" aria-label={t("quickQtyH")}>
               {QUANTITY_CHIPS.map((q) => (
-                <button key={q} type="button" className="chip num" aria-pressed={f.quantity === q} onClick={() => set({ ...f, quantity: f.quantity === q ? "" : q })}>
+                <button key={q} type="button" className="chip num" aria-pressed={f.quantity === q} onClick={() => set({ ...f, quantity: f.quantity === q ? "" : q, unit: f.unit || (f.quantity === q ? "" : usual) })}>
                   <bdi dir="ltr">{formatQuantity(parseQuantity(q)!)}</bdi>
                 </button>
               ))}
@@ -161,7 +212,7 @@ export function IngredientSheet({
             <h4>{t("quickUnitH")}</h4>
             <div className="chip-row" role="group" aria-label={t("quickUnitH")}>
               {UNIT_CHIPS[lang].map((u) => (
-                <button key={u} type="button" className="chip" aria-pressed={f.unit === u} onClick={() => set({ ...f, unit: f.unit === u ? "" : u, quantity: f.quantity || "1" })}>
+                <button key={u} type="button" className={u === usual && !f.unit ? "chip suggested" : "chip"} aria-pressed={f.unit === u} onClick={() => set({ ...f, unit: f.unit === u ? "" : u, quantity: f.quantity || "1" })}>
                   {u}
                 </button>
               ))}

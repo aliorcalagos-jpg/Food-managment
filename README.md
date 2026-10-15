@@ -87,6 +87,11 @@ https://claude.ai/artifact/7Y6W3zydkv5T6bH1vcgyZ9 (readable only by its owner).
   name, and a line without a number leaves the quantity empty (nothing is guessed). Enter in a row's name box starts the
   next row, and the name boxes suggest ingredient names already used in other foods (a quick-added name takes the existing
   spelling).
+- Ingredient list: the Add ingredient sheet has a ready list of 175 everyday ingredients in Arabic and English
+  (vegetables, meat, chicken, fish and seafood, legumes and grains, dairy and eggs, oils, spices and sauces), in
+  `lib/catalog.ts` (add a row to extend it). Tap a group, tap an ingredient, tap a quantity; typing searches every group
+  (ارز finds أرز). The usual unit is suggested but the quantity is always yours, and names not in the list still work.
+  `categorize` uses the list first, so picked ingredients land in the right aisle.
 - A food can be saved with just a name and given ingredients later; the buy panel names the chosen foods it left out
   because they have no ingredients yet, with a jump to add them. The Servings field means how many servings the entered
   quantities make (default 1, one person).

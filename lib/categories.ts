@@ -1,4 +1,5 @@
 import { hasArabic, normalizeArabic } from "./arabic";
+import { catalogItemFor } from "./catalog";
 
 export const CATEGORIES = ["Produce", "Meat & fish", "Dairy & eggs", "Bakery", "Pantry", "Frozen", "Other"] as const;
 export type Category = (typeof CATEGORIES)[number];
@@ -96,6 +97,9 @@ function categorizeArabic(name: string): Category | null {
 }
 
 export function categorize(name: string): Category {
+  // an ingredient from the ready list always lands in the aisle the list gives it
+  const listed = catalogItemFor(name);
+  if (listed) return listed.aisle;
   if (hasArabic(name)) {
     const found = categorizeArabic(name);
     if (found) return found;
