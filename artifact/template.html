@@ -15,6 +15,8 @@
   --accent-soft: #dcefe8;
   --danger: #b3261e;
   --danger-soft: #fbe4e1;
+  --warn: #b7791f;
+  --bar-dim: #5aa08e;
   --note: #fbf0cd;
   --note-ink: #5a4300;
   --focus: #0b57d0;
@@ -26,14 +28,14 @@
   :root:not([data-theme="light"]) {
     --bg: #0f1512; --surface: #171e1a; --ink: #e7eee9; --muted: #98a9a0; --line: #2a352f;
     --accent: #5cc4a1; --accent-ink: #06231a; --accent-soft: #1d3029;
-    --danger: #ff8a80; --danger-soft: #3a1c19; --note: #3a3012; --note-ink: #f1d88a; --focus: #8ab4f8;
+    --danger: #ff8a80; --danger-soft: #3a1c19; --warn: #e0b24a; --bar-dim: #3b7f6a; --note: #3a3012; --note-ink: #f1d88a; --focus: #8ab4f8;
     color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
   --bg: #0f1512; --surface: #171e1a; --ink: #e7eee9; --muted: #98a9a0; --line: #2a352f;
   --accent: #5cc4a1; --accent-ink: #06231a; --accent-soft: #1d3029;
-  --danger: #ff8a80; --danger-soft: #3a1c19; --note: #3a3012; --note-ink: #f1d88a; --focus: #8ab4f8;
+  --danger: #ff8a80; --danger-soft: #3a1c19; --warn: #e0b24a; --bar-dim: #3b7f6a; --note: #3a3012; --note-ink: #f1d88a; --focus: #8ab4f8;
   color-scheme: dark;
 }
 
@@ -158,12 +160,79 @@ fieldset { border: 0; padding: 0; margin: 0; min-width: 0; display: flex; flex-d
 .check { display: flex; align-items: center; gap: 12px; padding: 10px 2px; flex: 1; cursor: pointer; min-width: 0; }
 .done { color: var(--muted); text-decoration: line-through; }
 
+/* ---- Expenses ---- */
+.hero-card .hero { font: 600 clamp(2.25rem, 9vw, 3rem)/1.1 var(--font-body); font-variant-numeric: normal; margin: 4px 0 2px; }
+.other-money { font-size: .875rem; }
+.meter { height: 12px; border-radius: 999px; background: var(--line); display: flex; overflow: hidden; margin: 14px 0 10px; }
+.meter-fill { height: 100%; background: var(--accent); }
+.meter-fill.warn { background: var(--warn); }
+.meter-fill.over { background: var(--danger); }
+/* planned-but-not-bought: hatched, so it is told apart by pattern and not only by colour */
+.meter-plan { height: 100%; background: repeating-linear-gradient(45deg, var(--ink) 0 2px, transparent 2px 6px); opacity: .35; }
+.status { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.status-icon { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; font: 700 .8125rem var(--font-body); flex: none; }
+.status.ok .status-icon { background: var(--accent-soft); color: var(--accent); }
+.status.warn .status-icon { background: var(--note); color: var(--note-ink); }
+.status.over .status-icon { background: var(--danger-soft); color: var(--danger); }
+.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 10px 16px; margin: 14px 0 0; }
+.facts dt { font-size: .8125rem; color: var(--muted); }
+.facts dd { margin: 0; font-weight: 600; }
+
+.chart > h3 { margin: 6px 0 8px; }
+.bars { list-style: none; margin: 0; padding: 0; }
+.bar-row { display: grid; grid-template-columns: 6.5rem minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 5px 0; }
+.bar-label { font-size: .9375rem; }
+.bar-track { height: 16px; display: flex; }
+.bar-fill { height: 100%; min-width: 2px; background: var(--accent); border-start-end-radius: 4px; border-end-end-radius: 4px; }
+.bar-value { font-weight: 600; font-size: .9375rem; }
+
+.history { --plot-h: 140px; --label-h: 30px; --value-h: 22px; position: relative; display: flex; gap: 6px; }
+.col { flex: 1 1 0; min-width: 0; display: grid; grid-template-rows: var(--value-h) var(--plot-h) var(--label-h); justify-items: center; background: none; border: 0; padding: 0; font: inherit; color: inherit; cursor: pointer; border-radius: 6px; }
+.col-value { font-size: .75rem; font-weight: 600; align-self: end; }
+/* the baseline is a shadow, not a border: a border would shave 1px off the plot and put bars on a different scale than the budget line */
+.col-plot { width: 100%; display: flex; align-items: flex-end; justify-content: center; box-shadow: 0 1px 0 var(--line); }
+.col-bar { width: min(100%, 24px); background: var(--bar-dim); border-radius: 4px 4px 0 0; }
+.col-bar.selected { background: var(--accent); }
+.col-label { font-size: .75rem; color: var(--muted); text-align: center; align-self: center; }
+.col[aria-pressed="true"] .col-label { color: var(--ink); font-weight: 600; }
+.axis-max { position: absolute; inset-inline-start: 0; top: 0; font-size: .75rem; color: var(--muted); }
+.budget-line { position: absolute; inset-inline: 0; bottom: calc(var(--label-h) + var(--plot-h) * var(--budget)); border-top: 2px solid var(--ink); pointer-events: none; }
+.budget-tag { position: absolute; inset-inline-start: 0; bottom: 3px; font-size: .75rem; color: var(--muted); background: var(--bg); padding-inline: 4px; }
+.numbers { margin-top: 8px; }
+.numbers summary { cursor: pointer; color: var(--accent); }
+.numbers table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: .9375rem; }
+.numbers th, .numbers td { text-align: start; padding: 8px 6px; border-bottom: 1px solid var(--line); font-weight: 400; }
+.numbers thead th { font-size: .8125rem; color: var(--muted); }
+
+.settings summary { cursor: pointer; }
+.settings .stack { margin-top: 12px; }
+.segmented { display: flex; flex-wrap: wrap; gap: 8px; }
+.field > .label { font-size: .875rem; font-weight: 600; }
+.small { font-size: .8125rem; }
+
+.trip-meta { display: flex; flex-wrap: wrap; align-items: end; gap: 10px 20px; }
+.trip-meta .field { min-width: 11rem; }
+.totals { margin: 0; padding-block-end: 8px; }
+.price { flex: none; display: flex; align-items: center; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); padding-inline-start: 10px; }
+.price:focus-within { outline: 3px solid var(--focus); outline-offset: 2px; }
+.price-symbol { color: var(--muted); }
+.price-input { width: 5.5rem; border: 0; background: transparent; text-align: end; }
+.price-input:focus-visible { outline: none; }
+.price-input[aria-invalid="true"] { color: var(--danger); }
+.price:has(.price-input[aria-invalid="true"]) { border-color: var(--danger); }
+.status-note { margin: 4px 0 0; padding-inline-start: 30px; color: var(--note-ink); }
+.col-label { display: flex; flex-direction: column; align-items: center; line-height: 1.15; }
+.col-label small { font-size: .6875rem; }
+
 @media (max-width: 520px) {
   .two { grid-template-columns: minmax(0, 1fr); }
   .slot { grid-template-columns: minmax(0, 1fr); }
   .slot h4 { padding-top: 6px; }
   .entry-title { flex-basis: 100%; }
   .ing-row, .add-item { grid-template-columns: 4rem 4.5rem minmax(0, 1fr) auto; gap: 6px; }
+  .bar-row { grid-template-columns: 5rem minmax(0, 1fr) auto; gap: 8px; }
+  .price-input { width: 4.75rem; }
+  .week-range { flex-basis: 100%; order: -1; }
 }
 @media (prefers-reduced-motion: no-preference) {
   .btn, .chip, .tab { transition: background-color .12s, border-color .12s, color .12s; }

@@ -90,6 +90,8 @@ test("recipes, planner and shopping list end to end", async ({ page }) => {
   await page.getByLabel("3 cup milk").check();
   await page.getByLabel("4 1/2 tomatoes").check();
   await expect(page.getByText("2 of 3 done")).toBeVisible();
+  // the screen updates at once; wait for the (slow) saves to land before reloading, or the reload would drop them
+  await expect.poll(async () => ((await stored(page, "lists"))[0].items as { checked: boolean }[]).filter((i) => i.checked).length).toBe(2);
   await setDelay(15);
   await page.reload();
   await page.getByRole("button", { name: /^Meals/ }).click();

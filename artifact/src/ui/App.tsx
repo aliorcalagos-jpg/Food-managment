@@ -1,12 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 import { DEFAULT_LANG, I18nContext, makeI18n, type Lang } from "../i18n";
+import { MoneyContext } from "../money-context";
+import { todayISO } from "../today";
 import { useStore, type Store } from "../store";
 import { Empty } from "./common";
+import { Expenses } from "./Expenses";
 import { Lists } from "./Lists";
 import { Planner } from "./Planner";
 import { Recipes } from "./Recipes";
 
 const TABS = [
+  { id: "expenses", label: "tabExpenses" },
   { id: "recipes", label: "tabRecipes" },
   { id: "planner", label: "tabPlanner" },
   { id: "lists", label: "tabLists" },
@@ -23,7 +27,7 @@ function readTab(): Tab {
   } catch {
     /* storage unavailable */
   }
-  return "recipes";
+  return "expenses";
 }
 function readLocalLang(): Lang | null {
   try {
@@ -38,9 +42,8 @@ export function App({ store }: { store: Store }) {
   const state = useStore(store);
   const [tab, setTab] = useState<Tab>(readTab);
   const [localLang, setLocalLang] = useState<Lang | null>(readLocalLang);
-
   // The saved choice (shared by every device) wins, then this device's, then the default.
-  const lang: Lang = state.lang ?? localLang ?? DEFAULT_LANG;
+  const lang: Lang = state.settings.lang ?? localLang ?? DEFAULT_LANG;
   const i18n = useMemo(() => makeI18n(lang), [lang]);
   const { t, dir } = i18n;
 
@@ -65,11 +68,31 @@ export function App({ store }: { store: Store }) {
     } catch {
       /* storage unavailable */
     }
-    void store.setLang(next);
+    void store.updateSettings({ lang: next });
+  };
+
+  // Jumping from a shopping trip on the Expenses tab opens that list; the key remounts the Lists tab on it.
+  const [open, setOpen] = useState<{ id: string | null; key: number }>({ id: null, key: 0 });
+  const openList = (id: string) => {
+    setOpen((o) => ({ id, key: o.key + 1 }));
+    choose("lists");
+  };
+  const startTrip = async () => {
+    const date = todayISO();
+    const id = await store.createList({
+      name: i18n.t("tripDefaultName", { date }),
+      rangeStart: null,
+      rangeEnd: null,
+      createdAt: new Date().toISOString(),
+      shoppedOn: date,
+      items: [],
+    });
+    if (id) openList(id);
   };
 
   return (
     <I18nContext.Provider value={i18n}>
+     <MoneyContext.Provider value={{ currency: state.settings.currency, rate: state.settings.rate }}>
       <div className="app" dir={dir} lang={lang}>
         <header className="top">
           <div className="top-row">
@@ -100,11 +123,15 @@ export function App({ store }: { store: Store }) {
         <main className="main">
           {state.status === "loading" && <Empty title={t("loading")} />}
           {state.status === "unavailable" && <Empty title={t("unavailableTitle")}>{t("unavailableBody")}</Empty>}
+          {state.status === "ready" && tab === "expenses" && (
+            <Expenses store={store} lists={state.lists} settings={state.settings} onOpenList={openList} onStartTrip={() => void startTrip()} />
+          )}
           {state.status === "ready" && tab === "recipes" && <Recipes store={store} recipes={state.recipes} />}
           {state.status === "ready" && tab === "planner" && <Planner store={store} recipes={state.recipes} days={state.days} />}
-          {state.status === "ready" && tab === "lists" && <Lists store={store} lists={state.lists} recipes={state.recipes} days={state.days} />}
+          {state.status === "ready" && tab === "lists" && <Lists key={open.key} store={store} lists={state.lists} recipes={state.recipes} days={state.days} initialListId={open.id} />}
         </main>
       </div>
+     </MoneyContext.Provider>
     </I18nContext.Provider>
   );
 }

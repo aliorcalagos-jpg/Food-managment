@@ -44,13 +44,13 @@ test("opens in Arabic, right-to-left, and the switch flips direction, text and t
   await expect(page.getByRole("heading", { name: "Meal Planner", level: 1 })).toBeVisible();
   // dish names stay as written, in either interface language
   await expect(page.getByRole("button", { name: /رز مع دجاج/ })).toBeVisible();
-  expect(await stored(page, "meta")).toEqual([{ lang: "en" }]); // saved in the db, so every device agrees
+  expect(await stored(page, "meta")).toEqual([{ lang: "en", currency: "NGN", rate: 1380, weeklyBudget: null }]); // saved in the db, so every device agrees
 
   await page.reload();
   await expect(page.locator("html")).toHaveAttribute("lang", "en");
   await page.getByRole("button", { name: "Language" }).click();
   await expect(page.locator("html")).toHaveAttribute("dir", "rtl");
-  expect(await stored(page, "meta")).toEqual([{ lang: "ar" }]);
+  expect(await stored(page, "meta")).toEqual([{ lang: "ar", currency: "NGN", rate: 1380, weeklyBudget: null }]);
 });
 
 test("the user's five dishes: add ingredients in Arabic, plan, and get one merged list", async ({ page }) => {

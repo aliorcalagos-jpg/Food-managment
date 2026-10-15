@@ -58,6 +58,14 @@ https://claude.ai/artifact/7Y6W3zydkv5T6bH1vcgyZ9 (readable only by its owner).
   equivalents, Arabic digits (٢) and the comma (،) are accepted, and aisles are guessed from Arabic names. Matching is
   deliberately simple: no plurals or word roots, so two different spellings of the same word (e.g. بامية / بامياء)
   stay separate lines.
+- Food spending (Expenses tab, shown first): prices live on shopping-list items and everything is computed from the
+  lists, so there is no separate expense log. A price is the cost of the whole line, typed in naira or US dollars at a
+  fixed rate (default 1380 NGN per USD; amounts are stored as whole naira kobo, so USD is only a display and entry
+  convenience). Ticked priced items count as *spent*, unticked priced items as *planned*. A list counts towards the
+  Monday-to-Sunday week of its "shopped on" date. The tab shows the week's total against a weekly budget (on track
+  below 80%, close to the limit from 80% or when planned items would go over, over budget above 100%), spending by
+  aisle, the last 8 weeks with the budget line, and the week's trips. Settings (`meta/settings`) hold the language,
+  currency, rate and budget and are always merged, never replaced. Logic: `lib/money.ts`, `artifact/src/spending.ts`.
 - A dish can be saved with just a name and given ingredients later; a list says which planned dishes it left out
   because they have no ingredients yet.
 - Limits: one person, data is separate from the Postgres app, no export yet, and the 25,000-document /

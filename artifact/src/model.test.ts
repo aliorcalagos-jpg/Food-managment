@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   addItem, addMeal, clearChecked, datesInRange, dropRecipe, generateList, removeItem, removeMeal,
   setMealServings, toList, toPlanDay, toRecipe, toggleItem, type PlanDay, type Recipe,
+  DEFAULT_SETTINGS, fromSettings, setItemPrice, setShoppedOn, toSettings,
 } from "./model";
 
 const pasta: Recipe = {
@@ -65,18 +66,18 @@ describe("generateList", () => {
     day("2026-10-19", e("4", "bake", 2)), // after the range
     day("2026-10-11", e("5", "bake", 2)), // before the range
   ];
-  const input = { name: "Week", start: "2026-10-12", end: "2026-10-18" };
+  const input = { name: "Week", start: "2026-10-12", end: "2026-10-18", shoppedOn: "2026-10-17" };
 
   it("scales, merges and categorises (same numbers as the Next app)", () => {
     const r = generateList(input, [pasta, bake], days);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.list.items.map(({ id, ...rest }) => ({ ...rest, id: typeof id }))).toEqual([
-      { name: "milk", quantity: 3, unit: "cup", category: "Dairy & eggs", checked: false, id: "string" },
-      { name: "spaghetti", quantity: 1.6, unit: "kg", category: "Pantry", checked: false, id: "string" },
-      { name: "tomatoes", quantity: 4.5, unit: "", category: "Produce", checked: false, id: "string" },
+      { name: "milk", quantity: 3, unit: "cup", category: "Dairy & eggs", checked: false, price: null, id: "string" },
+      { name: "spaghetti", quantity: 1.6, unit: "kg", category: "Pantry", checked: false, price: null, id: "string" },
+      { name: "tomatoes", quantity: 4.5, unit: "", category: "Produce", checked: false, price: null, id: "string" },
     ]);
-    expect(r.list).toMatchObject({ name: "Week", rangeStart: "2026-10-12", rangeEnd: "2026-10-18" });
+    expect(r.list).toMatchObject({ name: "Week", rangeStart: "2026-10-12", rangeEnd: "2026-10-18", shoppedOn: "2026-10-17" });
   });
 
   it("includes both ends of the range", () => {
@@ -147,5 +148,60 @@ describe("list edits", () => {
     expect(clearChecked(l).items.map((i) => i.name)).toEqual(["bananas"]);
     expect(removeItem(l, bananas.id).items.map((i) => i.name)).toEqual(["soap"]);
     expect(base.items).toHaveLength(0);
+  });
+});
+
+describe("prices and the shopped-on date", () => {
+  it("reads prices as whole kobo and ignores anything else", () => {
+    const l = toList("l", {
+      createdAt: "2026-10-12T08:00:00Z",
+      items: [
+        { id: "a", name: "rice", price: 250000 },
+        { id: "b", name: "milk", price: 12.5 }, // not whole kobo
+        { id: "c", name: "egg", price: -1 },
+        { id: "d", name: "oil", price: "900" },
+        { id: "e", name: "salt" },
+        { id: "f", name: "free", price: 0 },
+      ],
+    });
+    expect(l.items.map((i) => i.price)).toEqual([250000, null, null, null, null, 0]);
+  });
+
+  it("falls back to the creation date for lists made before there was a shopped-on date", () => {
+    expect(toList("l", { createdAt: "2026-10-12T23:30:00Z" }).shoppedOn).toBe("2026-10-12");
+    expect(toList("l", { createdAt: "2026-10-12T08:00:00Z", shoppedOn: "2026-10-17" }).shoppedOn).toBe("2026-10-17");
+    expect(toList("l", { shoppedOn: "yesterday" }).shoppedOn).toBe("");
+  });
+
+  it("sets and clears a price, and changes the date, without touching anything else", () => {
+    let l = addItem(toList("l", { createdAt: "2026-10-12T08:00:00Z" }), { name: "rice", quantity: 1, unit: "kg", category: "Pantry" });
+    const id = l.items[0].id;
+    l = setItemPrice(l, id, 250000);
+    expect(l.items[0]).toMatchObject({ price: 250000, checked: false, name: "rice" });
+    l = toggleItem(l, id, true);
+    expect(setItemPrice(l, id, null).items[0]).toMatchObject({ price: null, checked: true });
+    expect(setShoppedOn(l, "2026-10-20").shoppedOn).toBe("2026-10-20");
+    expect(l.shoppedOn).toBe("2026-10-12");
+  });
+
+  it("addItem can carry a price", () => {
+    const l = addItem(toList("l", {}), { name: "rice", quantity: 1, unit: "", category: null, price: 1000 });
+    expect(l.items[0].price).toBe(1000);
+  });
+});
+
+describe("settings", () => {
+  it("uses safe defaults for a missing or damaged document", () => {
+    expect(toSettings(undefined)).toEqual(DEFAULT_SETTINGS);
+    expect(toSettings({ lang: "fr", currency: "EUR", rate: -3, weeklyBudget: "lots" })).toEqual(DEFAULT_SETTINGS);
+    expect(DEFAULT_SETTINGS).toEqual({ lang: null, currency: "NGN", rate: 1380, weeklyBudget: null });
+  });
+  it("keeps good values, and an old document with only a language still reads", () => {
+    expect(toSettings({ lang: "ar" })).toEqual({ lang: "ar", currency: "NGN", rate: 1380, weeklyBudget: null });
+    expect(toSettings({ lang: "en", currency: "USD", rate: 1500, weeklyBudget: 5000000 })).toEqual({ lang: "en", currency: "USD", rate: 1500, weeklyBudget: 5000000 });
+  });
+  it("writes only the fields that are set", () => {
+    expect(fromSettings({ ...DEFAULT_SETTINGS })).toEqual({ currency: "NGN", rate: 1380, weeklyBudget: null });
+    expect(fromSettings({ ...DEFAULT_SETTINGS, lang: "ar" })).toMatchObject({ lang: "ar" });
   });
 });

@@ -1,5 +1,7 @@
 import { useState, type ReactNode } from "react";
+import { formatMoney } from "../../../lib/money";
 import { formatQuantity } from "../../../lib/quantity";
+import { useMoney } from "../money-context";
 import { unitLabel, useI18n, type Msg } from "../i18n";
 
 /** Two-step inline confirmation. The viewer never shows confirm() dialogs. */
@@ -81,6 +83,31 @@ export function ItemLabel({ quantity, unit, name }: { quantity: number; unit: st
     <>
       <bdi dir="ltr">{formatQuantity(quantity)}</bdi>
       {unit ? <> {unitLabel(lang, unit)}</> : null} <bdi>{name}</bdi>
+    </>
+  );
+}
+
+/**
+ * An amount in the chosen currency, as a left-to-right run so "₦2,500" is never reordered inside Arabic text.
+ * `withOther` adds the other currency in small type ("≈ $1.81"); `onlyOther` shows just that.
+ */
+export function Money({ kobo, withOther = false, onlyOther = false }: { kobo: number; withOther?: boolean; onlyOther?: boolean }) {
+  const { currency, rate } = useMoney();
+  const { t } = useI18n();
+  const other = currency === "NGN" ? "USD" : "NGN";
+  return (
+    <>
+      {!onlyOther && (
+        <bdi dir="ltr" className="money">
+          {formatMoney(kobo, currency, rate)}
+        </bdi>
+      )}
+      {(withOther || onlyOther) && (
+        <small className="muted other-money">
+          {" "}
+          <bdi dir="ltr">{t("approx", { amount: formatMoney(kobo, other, rate) })}</bdi>
+        </small>
+      )}
     </>
   );
 }

@@ -1,18 +1,34 @@
 import { useState, type ReactNode } from "react";
+import { currencySymbol, editableAmount, parseMoney } from "../../../lib/money";
 import { categorize } from "../../../lib/categories";
 import { groupItems } from "../../../lib/list-build";
 import { parseQuantity } from "../../../lib/quantity";
 import { addDays, formatRange, parseISODate, startOfWeek, toISODate } from "../../../lib/week";
 import { aisleLabel, useI18n, type Msg } from "../i18n";
-import { addItem, clearChecked, generateList, removeItem, toggleItem, type PlanDay, type Recipe, type ShoppingList } from "../model";
+import { addItem, clearChecked, generateList, removeItem, setItemPrice, setShoppedOn, toggleItem, type PlanDay, type Recipe, type ShoppingList } from "../model";
+import { useMoney } from "../money-context";
+import { listTotals } from "../spending";
 import type { Store } from "../store";
 import { todayISO } from "../today";
-import { Arrow, ConfirmAction, Empty, FieldError, ItemLabel } from "./common";
+import { Arrow, ConfirmAction, Empty, FieldError, ItemLabel, Money } from "./common";
 
 type View = { kind: "index" } | { kind: "detail"; id: string; skipped?: string[] };
 
-export function Lists({ store, lists, recipes, days }: { store: Store; lists: ShoppingList[]; recipes: Recipe[]; days: PlanDay[] }) {
-  const [view, setView] = useState<View>({ kind: "index" });
+export function Lists({
+  store,
+  lists,
+  recipes,
+  days,
+  initialListId,
+}: {
+  store: Store;
+  lists: ShoppingList[];
+  recipes: Recipe[];
+  days: PlanDay[];
+  /** Open this list straight away (used when jumping here from the Expenses tab). */
+  initialListId?: string | null;
+}) {
+  const [view, setView] = useState<View>(initialListId ? { kind: "detail", id: initialListId } : { kind: "index" });
   if (view.kind === "detail") {
     return <ListDetail store={store} list={lists.find((l) => l.id === view.id)} skipped={view.skipped} onBack={() => setView({ kind: "index" })} />;
   }
@@ -31,7 +47,7 @@ function ListIndex({ store, lists, recipes, days, onOpen }: { store: Store; list
     // a default name in the current language, e.g. "وجبات 12 أكتوبر – 18 أكتوبر 2026"
     const [a, b] = [parseISODate(v.start), parseISODate(v.end)];
     const fallback = a && b ? t("defaultListName", { range: formatRange(a, b, lang) }) : "";
-    const result = generateList({ ...v, name: v.name.trim() || fallback }, recipes, days);
+    const result = generateList({ ...v, name: v.name.trim() || fallback, shoppedOn: todayISO() }, recipes, days);
     if (!result.ok) return setError(result.error);
     setError(null);
     const id = await store.createList({ ...result.list, createdAt: new Date().toISOString() });
@@ -42,7 +58,7 @@ function ListIndex({ store, lists, recipes, days, onOpen }: { store: Store; list
     e.preventDefault();
     const name = blank.trim();
     if (!name) return;
-    const id = await store.createList({ name, rangeStart: null, rangeEnd: null, createdAt: new Date().toISOString(), items: [] });
+    const id = await store.createList({ name, rangeStart: null, rangeEnd: null, createdAt: new Date().toISOString(), shoppedOn: todayISO(), items: [] });
     if (id) {
       setBlank("");
       onOpen(id);
@@ -130,6 +146,7 @@ function ListDetail({ store, list, skipped, onBack }: { store: Store; list: Shop
   }
 
   const done = list.items.filter((i) => i.checked).length;
+  const totals = listTotals(list);
   const update = (edit: (l: ShoppingList) => ShoppingList) => store.updateList(list.id, edit);
 
   function add(e: React.FormEvent) {
@@ -164,6 +181,29 @@ function ListDetail({ store, list, skipped, onBack }: { store: Store; list: Shop
         <span aria-live="polite">{t("progress", { done, total: list.items.length })}</span>
       </p>
 
+      <div className="trip-meta">
+        <div className="field">
+          <label htmlFor="shopped-on">{t("shoppedOn")}</label>
+          <input id="shopped-on" type="date" value={list.shoppedOn} onChange={(e) => {
+            // read the value now: the update runs later, after React has reset this controlled input
+            const date = e.target.value;
+            if (date) void update((l) => setShoppedOn(l, date));
+          }} />
+        </div>
+        {(totals.spent > 0 || totals.planned > 0) && (
+          <p className="totals num">
+            {t("boughtTotal")} <Money kobo={totals.spent} withOther />
+            {totals.planned > 0 && (
+              <>
+                {" · "}
+                {t("plannedTotal")} <Money kobo={totals.planned} />
+              </>
+            )}
+            {totals.unpriced > 0 && <span className="muted"> · {totals.unpriced === 1 ? t("unpricedOne") : t("unpricedN", { n: totals.unpriced })}</span>}
+          </p>
+        )}
+      </div>
+
       {skipped && skipped.length > 0 && noteOpen && (
         <div className="banner" role="note">
           <span>{t("noteSkipped", { names: skipped.join(" · ") })}</span>
@@ -197,6 +237,7 @@ function ListDetail({ store, list, skipped, onBack }: { store: Store; list: Shop
                   label={<ItemLabel quantity={i.quantity} unit={i.unit} name={i.name} />}
                   onChange={(next) => update((l) => toggleItem(l, i.id, next))}
                 />
+                <PriceInput id={i.id} name={i.name} price={i.price} onCommit={(p) => void update((l) => setItemPrice(l, i.id, p))} />
                 <button type="button" className="icon-btn" aria-label={t("removeItem", { name: i.name })} onClick={() => void update((l) => removeItem(l, i.id))}>
                   ✕
                 </button>
@@ -231,5 +272,61 @@ function ItemCheck({ checked, label, onChange }: { checked: boolean; label: Reac
       />
       <span className={(pending ?? checked) ? "done num" : "num"}>{label}</span>
     </label>
+  );
+}
+
+/**
+ * What one shopping line cost, typed in the chosen currency (naira or dollars at the fixed rate) and
+ * stored as whole naira kobo. Saved when you leave the box or press Enter; blank clears the price.
+ */
+function PriceInput({ id, name, price, onCommit }: { id: string; name: string; price: number | null; onCommit: (kobo: number | null) => void }) {
+  const { t } = useI18n();
+  const { currency, rate } = useMoney();
+  const shown = price === null ? "" : editableAmount(price, currency, rate);
+  const [draft, setDraft] = useState(shown);
+  const [synced, setSynced] = useState(shown);
+  const [bad, setBad] = useState(false);
+  if (synced !== shown) {
+    // the stored price (or the currency) changed: show it
+    setSynced(shown);
+    setDraft(shown);
+    setBad(false);
+  }
+
+  function commit() {
+    if (draft.trim() === "") {
+      setBad(false);
+      if (price !== null) onCommit(null);
+      return;
+    }
+    const kobo = parseMoney(draft, currency, rate);
+    if (kobo === null) return setBad(true);
+    setBad(false);
+    setDraft(editableAmount(kobo, currency, rate));
+    if (kobo !== price) onCommit(kobo);
+  }
+
+  return (
+    <span className="price">
+      <span className="price-symbol" aria-hidden="true">
+        {currencySymbol(currency)}
+      </span>
+      <label className="sr-only" htmlFor={`price-${id}`}>
+        {t("priceFor", { name })}
+      </label>
+      <input
+        id={`price-${id}`}
+        dir="ltr"
+        inputMode="decimal"
+        className="price-input num"
+        placeholder="0"
+        value={draft}
+        aria-invalid={bad || undefined}
+        title={bad ? t("errPrice") : undefined}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => e.key === "Enter" && commit()}
+      />
+    </span>
   );
 }

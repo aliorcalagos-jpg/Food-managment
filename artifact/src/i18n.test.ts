@@ -18,7 +18,7 @@ describe("translation tables", () => {
   });
 
   it("really are Arabic in the Arabic table (apart from a few shared symbols and brand names)", () => {
-    const shared = new Set(["phQty", "switchTo"]);
+    const shared = new Set(["phQty", "switchTo", "approx"]);
     for (const [key, text] of Object.entries(TABLES.ar)) {
       if (!shared.has(key)) expect(text, key).toMatch(/[؀-ۿ]/);
     }

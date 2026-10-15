@@ -3,7 +3,8 @@
 import type { Ingredient } from "../../lib/ingredients";
 import { buildListItems } from "../../lib/list-build";
 import type { MealTypeName } from "../../lib/meals";
-import type { Msg } from "./i18n";
+import { DEFAULT_RATE, isCurrency, MAX_KOBO, type Currency } from "../../lib/money";
+import type { Lang, Msg } from "./i18n";
 import { addDays, parseISODate, toISODate } from "../../lib/week";
 
 export type { Ingredient };
@@ -28,6 +29,8 @@ export type ListItem = {
   unit: string;
   category: string | null;
   checked: boolean;
+  /** What this whole line cost, in whole kobo (naira x 100); null until a price is entered. */
+  price: number | null;
 };
 export type ShoppingList = {
   id: string;
@@ -35,8 +38,22 @@ export type ShoppingList = {
   rangeStart: string | null;
   rangeEnd: string | null;
   createdAt: string;
+  /** The day of the shopping trip (YYYY-MM-DD). Bought items count towards the week of this date. */
+  shoppedOn: string;
   items: ListItem[];
 };
+
+export type Settings = {
+  /** null until a language has been chosen on some device (the page then uses its default). */
+  lang: Lang | null;
+  /** Which currency amounts are shown (and typed) in. Stored amounts are always naira. */
+  currency: Currency;
+  /** Naira per US dollar; fixed, only changed on purpose. */
+  rate: number;
+  /** Weekly food budget in kobo, or null for none. */
+  weeklyBudget: number | null;
+};
+export const DEFAULT_SETTINGS: Settings = { lang: null, currency: "NGN", rate: DEFAULT_RATE, weeklyBudget: null };
 
 export function newId(): string {
   try {
@@ -83,13 +100,20 @@ export function toPlanDay(date: string, d: Record<string, unknown>): PlanDay {
   };
 }
 
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const price = (v: unknown): number | null =>
+  typeof v === "number" && Number.isInteger(v) && v >= 0 && v <= MAX_KOBO ? v : null;
+
 export function toList(id: string, d: Record<string, unknown>): ShoppingList {
+  const createdAt = str(d.createdAt);
   return {
     id,
     name: str(d.name, "Shopping list"),
     rangeStart: typeof d.rangeStart === "string" ? d.rangeStart : null,
     rangeEnd: typeof d.rangeEnd === "string" ? d.rangeEnd : null,
-    createdAt: str(d.createdAt),
+    createdAt,
+    // lists made before prices existed have no shopped-on date: use the day they were created
+    shoppedOn: ISO_DATE.test(str(d.shoppedOn)) ? str(d.shoppedOn) : ISO_DATE.test(createdAt.slice(0, 10)) ? createdAt.slice(0, 10) : "",
     items: arr(d.items).map((i) => {
       const o = obj(i);
       return {
@@ -99,9 +123,25 @@ export function toList(id: string, d: Record<string, unknown>): ShoppingList {
         unit: str(o.unit),
         category: typeof o.category === "string" ? o.category : null,
         checked: o.checked === true,
+        price: price(o.price),
       };
     }),
   };
+}
+
+export function toSettings(d: Record<string, unknown> | null | undefined): Settings {
+  const o = d ?? {};
+  return {
+    lang: o.lang === "en" || o.lang === "ar" ? o.lang : null,
+    currency: isCurrency(o.currency) ? o.currency : DEFAULT_SETTINGS.currency,
+    rate: typeof o.rate === "number" && Number.isFinite(o.rate) && o.rate > 0 ? o.rate : DEFAULT_SETTINGS.rate,
+    weeklyBudget: price(o.weeklyBudget),
+  };
+}
+
+/** The document form of settings. Fields that were never set are left out, not written as null. */
+export function fromSettings(s: Settings): Record<string, unknown> {
+  return { ...(s.lang ? { lang: s.lang } : {}), currency: s.currency, rate: s.rate, weeklyBudget: s.weeklyBudget };
 }
 
 // ---- meal plan edits -----------------------------------------------------------------------
@@ -149,7 +189,7 @@ export type GenerateResult =
  * no ingredients yet are left out and reported in `skipped`, so the list never silently misses one.
  */
 export function generateList(
-  input: { name: string; start: string; end: string },
+  input: { name: string; start: string; end: string; shoppedOn: string },
   recipes: Recipe[],
   days: PlanDay[],
 ): GenerateResult {
@@ -175,11 +215,11 @@ export function generateList(
   const meals = planned.filter((m) => m.recipe.ingredients.length > 0);
   if (meals.length === 0) return { ok: false, error: { key: "errOnlyEmptyDishes", params: { names: skipped.join(" · ") } } };
 
-  const items: ListItem[] = buildListItems(meals).map((i) => ({ ...i, id: newId(), checked: false }));
+  const items: ListItem[] = buildListItems(meals).map((i) => ({ ...i, id: newId(), checked: false, price: null }));
   return {
     ok: true,
     skipped,
-    list: { name: input.name.trim() || `Meals ${input.start} to ${input.end}`, rangeStart: input.start, rangeEnd: input.end, items },
+    list: { name: input.name.trim() || `Meals ${input.start} to ${input.end}`, rangeStart: input.start, rangeEnd: input.end, shoppedOn: input.shoppedOn, items },
   };
 }
 
@@ -192,7 +232,13 @@ export const removeItem = (list: ShoppingList, itemId: string): ShoppingList => 
   items: list.items.filter((i) => i.id !== itemId),
 });
 export const clearChecked = (list: ShoppingList): ShoppingList => ({ ...list, items: list.items.filter((i) => !i.checked) });
-export const addItem = (list: ShoppingList, item: Omit<ListItem, "id" | "checked">): ShoppingList => ({
+export const addItem = (list: ShoppingList, item: Omit<ListItem, "id" | "checked" | "price"> & { price?: number | null }): ShoppingList => ({
   ...list,
-  items: [...list.items, { ...item, id: newId(), checked: false }],
+  items: [...list.items, { ...item, id: newId(), checked: false, price: item.price ?? null }],
 });
+/** Sets (or clears, with null) what a line cost. */
+export const setItemPrice = (list: ShoppingList, itemId: string, price: number | null): ShoppingList => ({
+  ...list,
+  items: list.items.map((i) => (i.id === itemId ? { ...i, price } : i)),
+});
+export const setShoppedOn = (list: ShoppingList, shoppedOn: string): ShoppingList => ({ ...list, shoppedOn });
