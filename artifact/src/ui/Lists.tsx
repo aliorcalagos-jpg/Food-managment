@@ -11,7 +11,7 @@ import { useMoney } from "../money-context";
 import { listTotals } from "../spending";
 import type { Store } from "../store";
 import { todayISO } from "../today";
-import { Arrow, ConfirmAction, Empty, FieldError, ItemLabel, Money } from "./common";
+import { Arrow, ConfirmAction, Empty, FieldError, ItemLabel, Money, SwipeRow } from "./common";
 
 type View = { kind: "index" } | { kind: "detail"; id: string };
 
@@ -51,7 +51,7 @@ function ListIndex({ store, lists, onOpen }: { store: Store; lists: ShoppingList
 
   return (
     <section aria-labelledby="lists-h" className="stack">
-      <h2 id="lists-h">{t("listsH")}</h2>
+      <h2 id="lists-h" className="large-title">{t("listsH")}</h2>
 
       {sorted.length === 0 ? (
         <Empty title={t("noLists")}>{t("noListsHint")}</Empty>
@@ -128,13 +128,20 @@ function ListDetail({ store, list, onBack }: { store: Store; list: ShoppingList 
   }
 
   const row = (i: ShoppingList["items"][number]) => (
-    <li key={i.id} className="item">
+    <SwipeRow
+      key={i.id}
+      contentClass="item"
+      deleteLabel={t("delete")}
+      toggleLabel={i.checked ? t("undo") : t("done")}
+      onDelete={() => void update((l) => removeItem(l, i.id))}
+      onToggle={() => void update((l) => toggleItem(l, i.id, !i.checked))}
+    >
       <ItemCheck checked={i.checked} label={<ItemLabel quantity={i.quantity} unit={i.unit} name={i.name} />} onChange={(next) => update((l) => toggleItem(l, i.id, next))} />
       <PriceInput id={i.id} name={i.name} price={i.price} onCommit={(p) => void update((l) => setItemPrice(l, i.id, p))} />
-      <button type="button" className="icon-btn" aria-label={t("removeItem", { name: i.name })} onClick={() => void update((l) => removeItem(l, i.id))}>
+      <button type="button" className="icon-btn row-remove" aria-label={t("removeItem", { name: i.name })} onClick={() => void update((l) => removeItem(l, i.id))}>
         ✕
       </button>
-    </li>
+    </SwipeRow>
   );
 
   return (

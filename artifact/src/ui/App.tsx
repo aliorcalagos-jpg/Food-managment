@@ -41,11 +41,20 @@ function readLocalLang(): Lang | null {
 export function App({ store }: { store: Store }) {
   const state = useStore(store);
   const [tab, setTab] = useState<Tab>(readTab);
+  const [scrolled, setScrolled] = useState(false);
   const [localLang, setLocalLang] = useState<Lang | null>(readLocalLang);
   // The saved choice (shared by every device) wins, then this device's, then the default.
   const lang: Lang = state.settings.lang ?? localLang ?? DEFAULT_LANG;
   const i18n = useMemo(() => makeI18n(lang), [lang]);
   const { t, dir } = i18n;
+
+  // the top bar gets its hairline once the large title has scrolled under it
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 24);
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
 
   useEffect(() => {
     document.documentElement.lang = lang;
@@ -104,13 +113,14 @@ export function App({ store }: { store: Store }) {
     <I18nContext.Provider value={i18n}>
      <MoneyContext.Provider value={{ currency: state.settings.currency, rate: state.settings.rate }}>
       <div className="app" dir={dir} lang={lang}>
-        <header className="top">
+        <header className={scrolled ? "top scrolled" : "top"}>
           <div className="top-row">
-            <h1 className="brand">{t("brand")}</h1>
             {/* shows the language you would switch to, written in that language */}
-            <button type="button" className="link lang-switch" lang={lang === "ar" ? "en" : "ar"} aria-label={t("language")} onClick={switchLang}>
+            <button type="button" className="lang-switch" lang={lang === "ar" ? "en" : "ar"} aria-label={t("language")} onClick={switchLang}>
               {t("switchTo")}
             </button>
+            <h1 className="brand">{t("brand")}</h1>
+            <span />
           </div>
         </header>
 

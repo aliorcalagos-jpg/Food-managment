@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { formatMoney } from "../../../lib/money";
 import { formatQuantity } from "../../../lib/quantity";
 import { useMoney } from "../money-context";
 import { unitLabel, useI18n, type Msg } from "../i18n";
+import { ACTION_W, clampOffset, logicalDx, physicalShift, swipeEnd } from "../swipe";
 
-/** Two-step inline confirmation. The viewer never shows confirm() dialogs. */
+/** A destructive action confirmed in an iOS-style action sheet. The viewer never shows confirm() dialogs. */
 export function ConfirmAction({
   label,
   confirmLabel,
@@ -18,29 +19,38 @@ export function ConfirmAction({
 }) {
   const { t } = useI18n();
   const [asking, setAsking] = useState(false);
-  if (!asking) {
-    return (
+  const cancel = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (asking) cancel.current?.focus();
+  }, [asking]);
+  return (
+    <>
       <button type="button" className={className} onClick={() => setAsking(true)}>
         {label}
       </button>
-    );
-  }
-  return (
-    <span className="confirm" role="group" aria-label={label}>
-      <button
-        type="button"
-        className="btn danger"
-        onClick={() => {
-          setAsking(false);
-          onConfirm();
-        }}
-      >
-        {confirmLabel}
-      </button>
-      <button type="button" className="btn ghost" onClick={() => setAsking(false)}>
-        {t("cancel")}
-      </button>
-    </span>
+      {asking && (
+        <div className="sheet-overlay action-overlay" onMouseDown={(e) => e.target === e.currentTarget && setAsking(false)} onKeyDown={(e) => e.key === "Escape" && setAsking(false)}>
+          <div className="action-sheet" role="dialog" aria-modal="true" aria-label={label}>
+            <div className="action-group">
+              <p className="action-title">{label}</p>
+              <button
+                type="button"
+                className="action-btn danger"
+                onClick={() => {
+                  setAsking(false);
+                  onConfirm();
+                }}
+              >
+                {confirmLabel}
+              </button>
+            </div>
+            <button type="button" ref={cancel} className="action-btn cancel" onClick={() => setAsking(false)}>
+              {t("cancel")}
+            </button>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -67,7 +77,7 @@ export function Empty({ title, children }: { title: string; children?: ReactNode
 export function Arrow({ forward = false }: { forward?: boolean }) {
   return (
     <span className="arrow" aria-hidden="true">
-      {forward ? "→" : "←"}
+      {forward ? "›" : "‹"}
     </span>
   );
 }
@@ -126,15 +136,19 @@ export function useWide(): boolean {
   );
 }
 
-/** A bottom sheet (a centred dialog on wide screens). Escape or a tap outside closes it; focus returns where it was. */
+/** A bottom sheet with a grabber (a centred dialog on wide screens). Drag it down, press Escape or tap outside to close. */
 export function Sheet({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
   const { t } = useI18n();
   const ref = useRef<HTMLDivElement>(null);
+  const drag = useRef<{ y: number; dy: number } | null>(null);
   useEffect(() => {
     const before = document.activeElement as HTMLElement | null;
     if (ref.current && !ref.current.contains(document.activeElement)) ref.current.focus();
     return () => before?.focus?.();
   }, []);
+  const shift = (dy: number) => {
+    if (ref.current) ref.current.style.transform = dy ? `translateY(${dy}px)` : "";
+  };
   return (
     <div className="sheet-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div
@@ -151,11 +165,35 @@ export function Sheet({ title, onClose, children }: { title: string; onClose: ()
           }
         }}
       >
-        <div className="sheet-head">
-          <h3>{title}</h3>
-          <button type="button" className="sheet-close" aria-label={t("close")} onClick={onClose}>
-            ✕
-          </button>
+        <div
+          className="sheet-grab"
+          onPointerDown={(e) => {
+            if (e.target instanceof Element && e.target.closest("button")) return;
+            drag.current = { y: e.clientY, dy: 0 };
+            e.currentTarget.setPointerCapture(e.pointerId);
+          }}
+          onPointerMove={(e) => {
+            if (!drag.current) return;
+            drag.current.dy = Math.max(0, e.clientY - drag.current.y);
+            shift(drag.current.dy);
+          }}
+          onPointerUp={() => {
+            const dy = drag.current?.dy ?? 0;
+            drag.current = null;
+            if (dy > 110) onClose();
+            else shift(0);
+          }}
+          onPointerCancel={() => {
+            drag.current = null;
+            shift(0);
+          }}
+        >
+          <div className="sheet-head">
+            <h3>{title}</h3>
+            <button type="button" className="sheet-close" aria-label={t("close")} onClick={onClose}>
+              ✕
+            </button>
+          </div>
         </div>
         {children}
       </div>
@@ -209,5 +247,121 @@ export function Icon({ name }: { name: keyof typeof ICONS }) {
     <svg className="ico" viewBox="0 0 24 24" aria-hidden="true">
       {ICONS[name]}
     </svg>
+  );
+}
+
+/**
+ * A list row that can be swiped like in Mail or Reminders: toward the trailing edge reveals Delete (a long swipe
+ * deletes), toward the leading edge ticks. Directions mirror in right-to-left text. Buttons inside the row stay
+ * the keyboard and screen-reader way to do the same things.
+ */
+export function SwipeRow({
+  children,
+  contentClass,
+  onDelete,
+  onToggle,
+  deleteLabel,
+  toggleLabel,
+}: {
+  children: ReactNode;
+  contentClass?: string;
+  onDelete?: () => void;
+  onToggle?: () => void;
+  deleteLabel: string;
+  toggleLabel?: string;
+}) {
+  const { dir } = useI18n();
+  const rtl = dir === "rtl";
+  const hasToggle = !!onToggle;
+  const hasDelete = !!onDelete;
+  const [offset, setOffset] = useState(0);
+  const [dragging, setDragging] = useState(false);
+  const offsetRef = useRef(0);
+  const rowRef = useRef<HTMLLIElement>(null);
+  const drag = useRef<{ x: number; y: number; base: number; active: boolean } | null>(null);
+  const swiped = useRef(false);
+  const move = useCallback((n: number) => {
+    offsetRef.current = n;
+    setOffset(n);
+  }, []);
+  const open = offset === -ACTION_W && !dragging;
+
+  // an open row closes when you tap somewhere else or press Escape
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: PointerEvent) => {
+      if (!rowRef.current?.contains(e.target as Node)) move(0);
+    };
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && move(0);
+    document.addEventListener("pointerdown", away);
+    document.addEventListener("keydown", esc);
+    return () => {
+      document.removeEventListener("pointerdown", away);
+      document.removeEventListener("keydown", esc);
+    };
+  }, [open, move]);
+
+  const finish = () => {
+    const d = drag.current;
+    drag.current = null;
+    if (!d?.active) return;
+    setDragging(false);
+    swiped.current = true;
+    setTimeout(() => (swiped.current = false), 0);
+    const end = swipeEnd(offsetRef.current, hasToggle, hasDelete);
+    if (end === "toggle") {
+      move(0);
+      onToggle?.();
+    } else if (end === "delete") {
+      move(0);
+      onDelete?.();
+    } else move(end === "open" ? -ACTION_W : 0);
+  };
+
+  return (
+    <li ref={rowRef} className={`swipe${dragging ? " dragging" : ""}${offset > 0 ? " revealing-lead" : ""}${offset < 0 ? " revealing-trail" : ""}`}>
+      {hasToggle && (
+        <button type="button" tabIndex={-1} aria-hidden="true" className="swipe-act swipe-lead" onClick={() => { move(0); onToggle?.(); }}>
+          {toggleLabel}
+        </button>
+      )}
+      {hasDelete && (
+        <button type="button" tabIndex={-1} aria-hidden="true" className="swipe-act swipe-trail" onClick={() => { move(0); onDelete?.(); }}>
+          {deleteLabel}
+        </button>
+      )}
+      <div
+        className={`swipe-content ${contentClass ?? ""}`}
+        style={{ transform: offset ? `translateX(${physicalShift(offset, rtl)}px)` : undefined }}
+        onPointerDown={(e) => {
+          if (e.pointerType === "mouse" && e.button !== 0) return;
+          drag.current = { x: e.clientX, y: e.clientY, base: offsetRef.current, active: false };
+        }}
+        onPointerMove={(e) => {
+          const d = drag.current;
+          if (!d) return;
+          const dx = e.clientX - d.x;
+          const dy = e.clientY - d.y;
+          if (!d.active) {
+            if (Math.abs(dx) < 8 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+            d.active = true;
+            setDragging(true);
+            e.currentTarget.setPointerCapture(e.pointerId);
+          }
+          move(clampOffset(d.base + logicalDx(dx, rtl), hasToggle, hasDelete));
+        }}
+        onPointerUp={finish}
+        onPointerCancel={finish}
+        onClickCapture={(e) => {
+          if (swiped.current || offsetRef.current < 0) {
+            e.stopPropagation();
+            e.preventDefault();
+            if (offsetRef.current < 0 && !swiped.current) move(0);
+          }
+        }}
+      >
+        {children}
+      </div>
+    </li>
   );
 }

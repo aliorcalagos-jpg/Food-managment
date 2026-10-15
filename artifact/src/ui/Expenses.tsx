@@ -36,7 +36,7 @@ export function Expenses({
 
   return (
     <section aria-labelledby="exp-h" className="stack">
-      <h2 id="exp-h" className="sr-only">
+      <h2 id="exp-h" className="large-title">
         {t("expensesH")}
       </h2>
       <nav aria-label={t("weekNavExpenses")} className="week-bar">

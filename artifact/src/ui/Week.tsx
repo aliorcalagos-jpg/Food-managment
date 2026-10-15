@@ -74,7 +74,7 @@ export function Week({
 
   return (
     <section aria-labelledby="week-h" className="stack">
-      <h2 id="week-h" className="sr-only">
+      <h2 id="week-h" className="large-title">
         {t("weekH")}
       </h2>
       <nav aria-label={t("weekNav")} className="week-bar">
@@ -117,10 +117,10 @@ export function Week({
                 return (
                   <li key={r.id} className={on ? "pick on" : "pick"}>
                     <button type="button" className="pick-btn" aria-pressed={on} onClick={() => choose(r, on ? null : r.servings)}>
-                      <bdi>{r.title}</bdi>
                       <span className="pick-check" aria-hidden="true">
                         ✓
                       </span>
+                      <bdi>{r.title}</bdi>
                     </button>
                     {bare && (
                       <div className="pick-note">

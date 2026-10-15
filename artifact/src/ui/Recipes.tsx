@@ -7,7 +7,7 @@ import { validateRecipe, type RecipeErrors, type RecipeFormValues } from "../for
 import { useI18n } from "../i18n";
 import type { Recipe } from "../model";
 import { EXAMPLE_TAG, type Store } from "../store";
-import { Arrow, ConfirmAction, Empty, FieldError, ItemLabel, Stepper } from "./common";
+import { Arrow, ConfirmAction, Empty, FieldError, ItemLabel, Stepper, SwipeRow } from "./common";
 import { IngredientSheet, type IngRow } from "./IngredientSheet";
 
 type View = { kind: "list" } | { kind: "detail"; id: string } | { kind: "edit"; id?: string };
@@ -113,7 +113,12 @@ function RecipeList(props: {
   return (
     <section aria-labelledby="recipes-h">
       <div className="page-head">
-        <h2 id="recipes-h">{t("recipesH")}</h2>
+        <h2 id="recipes-h" className="large-title">
+          {t("recipesH")}
+        </h2>
+        <button type="button" className="add-btn" aria-label={t("newRecipe")} onClick={props.onNew}>
+          <span aria-hidden="true">＋</span>
+        </button>
       </div>
 
       {hasExamples && (
@@ -168,10 +173,6 @@ function RecipeList(props: {
           ))}
         </ul>
       )}
-      <button type="button" className="btn primary fab" onClick={props.onNew}>
-        <span aria-hidden="true">＋ </span>
-        {t("newRecipe")}
-      </button>
     </section>
   );
 }
@@ -315,7 +316,15 @@ function RecipeForm({
   return (
     <>
       <form onSubmit={submit} noValidate className="stack">
-        <h2>{isNew ? t("newRecipe") : t("editRecipe")}</h2>
+        <div className="modal-bar">
+          <button type="button" className="bar-btn" onClick={onCancel}>
+            {t("cancel")}
+          </button>
+          <h2>{isNew ? t("newRecipe") : t("editRecipe")}</h2>
+          <button type="submit" className="bar-btn strong" disabled={saving}>
+            {saving ? t("saving") : t("saveRecipe")}
+          </button>
+        </div>
 
         <div className="field">
           <label htmlFor="recipe-title">{t("fTitle")}</label>
@@ -343,7 +352,7 @@ function RecipeForm({
               {v.rows.map((r, n) => {
                 const q = parseQuantity(r.quantity);
                 return (
-                  <li key={n} className={q === null ? "ing-line bad" : "ing-line"}>
+                  <SwipeRow key={n} contentClass={q === null ? "ing-line bad" : "ing-line"} deleteLabel={t("delete")} onDelete={() => setV((cur) => ({ ...cur, rows: cur.rows.filter((_, i) => i !== n) }))}>
                     <button type="button" className="ing-line-btn num" onClick={() => setSheet({ index: n })}>
                       {q === null ? (
                         <>
@@ -356,10 +365,10 @@ function RecipeForm({
                         </span>
                       )}
                     </button>
-                    <button type="button" className="icon-btn" aria-label={t("fRemoveIng", { n: n + 1 })} onClick={() => setV({ ...v, rows: v.rows.filter((_, i) => i !== n) })}>
+                    <button type="button" className="icon-btn row-remove" aria-label={t("fRemoveIng", { n: n + 1 })} onClick={() => setV((cur) => ({ ...cur, rows: cur.rows.filter((_, i) => i !== n) }))}>
                       ✕
                     </button>
-                  </li>
+                  </SwipeRow>
                 );
               })}
             </ul>
@@ -390,17 +399,6 @@ function RecipeForm({
             </div>
           </div>
         </details>
-
-        <div className="focus-bar">
-          <div className="focus-bar-in">
-            <button type="button" className="btn ghost" onClick={onCancel}>
-              {t("cancel")}
-            </button>
-            <button type="submit" className="btn primary" disabled={saving}>
-              {saving ? t("saving") : t("saveRecipe")}
-            </button>
-          </div>
-        </div>
       </form>
 
       {sheet && (

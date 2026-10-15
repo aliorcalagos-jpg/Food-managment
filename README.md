@@ -50,6 +50,10 @@ https://claude.ai/artifact/7Y6W3zydkv5T6bH1vcgyZ9 (readable only by its owner).
 - `npm run test:artifact` runs the built page in Playwright against an in-memory fake of the `db` runtime
   (`artifact/e2e/harness.ts`), including slow and failing saves. The pinned React copies in
   `artifact/test/vendor/` exist only to answer the page's cdnjs requests offline.
+- Look: iPhone system design. SF type, iOS semantic colours (green tint, light and dark), large titles under a frosted top
+  bar, a frosted tab bar, inset grouped lists, bottom sheets with a grabber (drag down to close), action sheets for
+  deletes, and swipe rows (swipe toward the trailing edge for Delete, the other way to tick; mirrored in Arabic; the
+  visible buttons remain for mouse and keyboard). Landscape iPhone gets compact bars. Swipe rules: `artifact/src/swipe.ts`.
 - Layout: phone first. A bottom bar switches between **This week** (the home screen), **Foods**, **Shopping** and
   **Spending**. Foods are tap cards with a servings stepper; on a phone a sticky bar shows "N foods · M items" with
   *Start shopping* and opens the what-to-buy sheet, on a wide screen the list sits beside the foods. Ingredients are added
