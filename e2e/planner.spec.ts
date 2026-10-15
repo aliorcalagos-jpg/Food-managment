@@ -1,9 +1,10 @@
 import "dotenv/config";
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { cleanup, signupAndCreateHousehold } from "./helpers";
+import { cleanup, signupAndCreateHousehold, resetLoopbackRateLimits } from "./helpers";
 
 const tag = `e2ep-${Date.now()}`;
 const WEEK = "/planner?week=2026-10-14"; // a Wednesday: should resolve to Mon Oct 12
+test.beforeAll(resetLoopbackRateLimits);
 test.afterAll(() => cleanup(tag));
 
 const day = (page: Page, name: string) => page.getByRole("region", { name });

@@ -4,7 +4,12 @@ import { PrismaClient } from "./generated/prisma/client";
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 
 function createClient() {
-  const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
+  // Every serverless instance holds its own pool, so keep it small and point
+  // DATABASE_URL at the provider's pooled endpoint in production.
+  const adapter = new PrismaPg({
+    connectionString: process.env.DATABASE_URL,
+    max: Number(process.env.DATABASE_POOL_MAX) || 5,
+  });
   return new PrismaClient({ adapter });
 }
 

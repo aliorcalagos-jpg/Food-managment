@@ -37,3 +37,13 @@ export async function addRecipe(page: Page, title: string, servings: string, ing
   await page.getByRole("button", { name: "Save recipe" }).click();
   await expect(page.getByRole("heading", { name: title })).toBeVisible();
 }
+
+/**
+ * Every test signs up from the loopback address, so repeated runs would trip the signup
+ * limit (10/hour per IP). Clears only loopback counters, never a real client's.
+ */
+export async function resetLoopbackRateLimits() {
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  await pool.query(`delete from "RateLimit" where key like '%:127.0.0.1%' or key like '%:::1%' or key like '%:unknown%' or key like 'login:any:%'`);
+  await pool.end();
+}

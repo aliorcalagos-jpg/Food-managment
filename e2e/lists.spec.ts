@@ -1,8 +1,9 @@
 import "dotenv/config";
 import { expect, test, type Page } from "@playwright/test";
-import { addRecipe, cleanup, signupAndCreateHousehold } from "./helpers";
+import { addRecipe, cleanup, signupAndCreateHousehold, resetLoopbackRateLimits } from "./helpers";
 
 const tag = `e2el-${Date.now()}`;
+test.beforeAll(resetLoopbackRateLimits);
 test.afterAll(() => cleanup(tag));
 
 async function plan(page: Page, dayName: string, recipe: string, servings?: string) {

@@ -14,6 +14,7 @@ export default function SignupPage() {
         <Field label="Name" name="name" autoComplete="name" error={state?.errors?.name} defaultValue={state?.values?.name} />
         <Field label="Email" name="email" type="email" autoComplete="email" error={state?.errors?.email} defaultValue={state?.values?.email} />
         <Field label="Password" name="password" type="password" autoComplete="new-password" error={state?.errors?.password} />
+        {state?.message && <p role="alert" className="text-sm text-red-600">{state.message}</p>}
         <SubmitButton pending={pending}>Sign up</SubmitButton>
       </form>
       <p className="text-sm">

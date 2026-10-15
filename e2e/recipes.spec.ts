@@ -1,8 +1,9 @@
 import "dotenv/config";
 import { expect, test, type Page } from "@playwright/test";
-import { cleanup, signupAndCreateHousehold } from "./helpers";
+import { cleanup, signupAndCreateHousehold, resetLoopbackRateLimits } from "./helpers";
 
 const tag = `e2er-${Date.now()}`;
+test.beforeAll(resetLoopbackRateLimits);
 test.afterAll(() => cleanup(tag));
 
 async function addIngredient(page: Page, i: number, qty: string, unit: string, name: string) {

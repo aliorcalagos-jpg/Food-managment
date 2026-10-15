@@ -116,3 +116,11 @@ model ShoppingItem {
 
   @@index([listId])
 }
+
+// Fixed-window counters for throttling logins and signups. Lives in Postgres
+// because serverless instances don't share memory.
+model RateLimit {
+  key         String   @id
+  count       Int
+  windowStart DateTime
+}
