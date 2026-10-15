@@ -49,3 +49,6 @@ next-env.d.ts
 # playwright
 /test-results/
 /playwright-report/
+
+# built artifact page (regenerate with `npm run build:artifact`)
+/artifact/dist/

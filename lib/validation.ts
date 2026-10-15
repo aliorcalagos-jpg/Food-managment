@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { MEAL_TYPES } from "./meals";
 import { parseQuantity } from "./quantity";
+import { parseTags } from "./tags";
+import { isHttpUrl } from "./url";
 import { daysBetween, parseISODate } from "./week";
 
 export const signupSchema = z.object({
@@ -32,18 +34,7 @@ export function fieldErrors(error: z.ZodError): Record<string, string> {
   return out;
 }
 
-const httpUrl = z
-  .string()
-  .trim()
-  .max(2000)
-  .refine((v) => {
-    try {
-      const { protocol } = new URL(v);
-      return protocol === "http:" || protocol === "https:";
-    } catch {
-      return false;
-    }
-  }, "Enter a valid http(s) link");
+const httpUrl = z.string().trim().max(2000).refine(isHttpUrl, "Enter a valid http(s) link");
 
 export const ingredientInputSchema = z.object({
   name: z.string().trim().min(1, "Ingredient name is required").max(120),
@@ -62,14 +53,7 @@ export const recipeSchema = z.object({
 
 export type RecipeInput = z.infer<typeof recipeSchema>;
 
-export function parseTags(raw: string): string[] {
-  const seen = new Set<string>();
-  for (const part of raw.split(",")) {
-    const t = part.trim().toLowerCase().replace(/\s+/g, " ").slice(0, 30);
-    if (t) seen.add(t);
-  }
-  return [...seen];
-}
+export { parseTags };
 
 /** Turn the recipe form's raw FormData into validated input (or field errors). */
 export function parseRecipeForm(formData: FormData):

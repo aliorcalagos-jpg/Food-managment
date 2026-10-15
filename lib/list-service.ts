@@ -1,6 +1,6 @@
-import { CATEGORIES, categorize } from "./categories";
+import { categorize } from "./categories";
 import { db } from "./db";
-import { mergeIngredients, scaleIngredient, type Ingredient } from "./ingredients";
+import { buildListItems } from "./list-build";
 import { addDays } from "./week";
 
 /**
@@ -15,12 +15,7 @@ export async function generateList(householdId: string, input: { name: string; s
   });
   if (entries.length === 0) return null;
 
-  const scaled: Ingredient[] = entries.flatMap((e) =>
-    e.recipe.ingredients.map((i) =>
-      scaleIngredient({ name: i.name, quantity: i.quantity, unit: i.unit }, e.recipe.servings, e.servings),
-    ),
-  );
-  const items = mergeIngredients(scaled).map((i) => ({ ...i, category: categorize(i.name) }));
+  const items = buildListItems(entries);
 
   return db.shoppingList.create({
     data: { householdId, name: input.name, rangeStart: input.start, rangeEnd: input.end, items: { create: items } },
@@ -81,18 +76,4 @@ export async function deleteList(householdId: string, listId: string) {
   return count > 0;
 }
 
-type ViewItem = { id: string; name: string; quantity: number; unit: string; checked: boolean; category: string | null };
-
-/** Group by category in aisle order; unchecked first, then alphabetical. */
-export function groupItems<T extends ViewItem>(items: T[]): { category: string; items: T[] }[] {
-  const known: readonly string[] = CATEGORIES;
-  const groups = new Map<string, T[]>();
-  for (const item of items) {
-    const key = item.category && known.includes(item.category) ? item.category : "Other";
-    groups.set(key, [...(groups.get(key) ?? []), item]);
-  }
-  return CATEGORIES.filter((c) => groups.has(c)).map((category) => ({
-    category,
-    items: groups.get(category)!.sort((a, b) => Number(a.checked) - Number(b.checked) || a.name.localeCompare(b.name)),
-  }));
-}
+export { groupItems } from "./list-build";

@@ -10,6 +10,6 @@ export default defineConfig({
   test: {
     setupFiles: ["./test/setup.ts"],
     fileParallelism: false,
-    exclude: ["e2e/**", "node_modules/**"],
+    exclude: ["e2e/**", "artifact/e2e/**", "node_modules/**"],
   },
 });

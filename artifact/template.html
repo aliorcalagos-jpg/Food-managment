@@ -1,0 +1,166 @@
+<title>Meal Planner</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Instrument+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: one narrow column like a kitchen notepad. A sticky header holds the name and three tabs;
+   every list is a ruled row, and only the day blocks and the generator form are carded. */
+:root {
+  --bg: #f2f5f3;
+  --surface: #ffffff;
+  --ink: #15201b;
+  --muted: #566860;
+  --line: #d6dfd9;
+  --accent: #17695a;
+  --accent-ink: #ffffff;
+  --accent-soft: #dcefe8;
+  --danger: #b3261e;
+  --danger-soft: #fbe4e1;
+  --note: #fbf0cd;
+  --note-ink: #5a4300;
+  --focus: #0b57d0;
+  --font-body: "Instrument Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: "Bricolage Grotesque", "Instrument Sans", system-ui, sans-serif;
+  --radius: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1512; --surface: #171e1a; --ink: #e7eee9; --muted: #98a9a0; --line: #2a352f;
+    --accent: #5cc4a1; --accent-ink: #06231a; --accent-soft: #1d3029;
+    --danger: #ff8a80; --danger-soft: #3a1c19; --note: #3a3012; --note-ink: #f1d88a; --focus: #8ab4f8;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1512; --surface: #171e1a; --ink: #e7eee9; --muted: #98a9a0; --line: #2a352f;
+  --accent: #5cc4a1; --accent-ink: #06231a; --accent-soft: #1d3029;
+  --danger: #ff8a80; --danger-soft: #3a1c19; --note: #3a3012; --note-ink: #f1d88a; --focus: #8ab4f8;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--ink); font: 16px/1.5 var(--font-body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 0 48px;
+}
+h1, h2, h3, h4 { font-family: var(--font-display); line-height: 1.2; margin: 0; text-wrap: balance; }
+h2 { font-size: 1.5rem; }
+h3 { font-size: 1.05rem; margin-top: 20px; }
+h4 { font-size: .8125rem; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-family: var(--font-body); margin: 0; }
+p { margin: 0; }
+a { color: var(--accent); }
+.num { font-variant-numeric: tabular-nums; }
+.muted { color: var(--muted); }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; border-radius: 4px; }
+
+.app { max-width: 760px; margin: 0 auto; }
+.top {
+  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--bg);
+  padding: 14px 0 0; border-bottom: 1px solid var(--line);
+}
+.brand { font-size: 1.25rem; font-weight: 700; }
+.tabs { display: flex; gap: 4px; margin-top: 10px; }
+.tab {
+  appearance: none; border: 0; background: none; color: var(--muted); font: inherit; font-weight: 600;
+  padding: 10px 14px; border-bottom: 3px solid transparent; cursor: pointer; min-height: 44px;
+}
+.tab[aria-current="page"] { color: var(--ink); border-bottom-color: var(--accent); }
+.main { padding-top: 22px; }
+
+.page-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; margin-bottom: 14px; }
+.actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
+.stack { display: flex; flex-direction: column; gap: 16px; }
+.two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; }
+
+input, select, textarea {
+  font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--line);
+  border-radius: 8px; padding: 9px 11px; width: 100%; min-width: 0; min-height: 44px;
+}
+textarea { resize: vertical; }
+input[type="checkbox"] { width: 22px; height: 22px; min-height: 0; accent-color: var(--accent); flex: none; }
+.field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.field > label, legend { font-size: .875rem; font-weight: 600; }
+.field-error { color: var(--danger); font-size: .875rem; }
+[aria-invalid="true"] { border-color: var(--danger); }
+fieldset { border: 0; padding: 0; margin: 0; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.search { margin-bottom: 12px; }
+
+.btn {
+  font: inherit; font-weight: 600; border-radius: 8px; padding: 9px 16px; min-height: 44px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+}
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+.btn.ghost { background: none; }
+.btn:disabled { opacity: .6; cursor: default; }
+.link { appearance: none; background: none; border: 0; padding: 6px 2px; font: inherit; color: var(--accent); text-decoration: underline; cursor: pointer; min-height: 32px; }
+.link.danger { color: var(--danger); }
+.icon-btn { appearance: none; background: none; border: 0; color: var(--muted); font: inherit; width: 44px; min-height: 44px; cursor: pointer; border-radius: 8px; }
+.icon-btn:hover:not(:disabled) { color: var(--danger); }
+.icon-btn:disabled { opacity: .3; cursor: default; }
+.confirm { display: inline-flex; flex-wrap: wrap; gap: 8px; }
+
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 14px; }
+.chip { font: inherit; font-size: .875rem; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer; min-height: 36px; }
+.chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.pill { display: inline-block; margin-left: 10px; padding: 1px 9px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font: 600 .75rem var(--font-body); vertical-align: middle; }
+
+.rows { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+.rows > li { border-bottom: 1px solid var(--line); }
+.row-btn { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 2px 16px; width: 100%; text-align: left; background: none; border: 0; padding: 14px 2px; font: inherit; color: inherit; cursor: pointer; min-height: 44px; }
+.row-btn:hover .row-title { color: var(--accent); }
+.row-title { font-weight: 600; }
+.ingredients { margin: 8px 0 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
+.prose { white-space: pre-wrap; max-width: 65ch; margin-top: 8px; }
+
+.ing-row { display: grid; grid-template-columns: 4.5rem 5.5rem minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+.empty { padding: 28px 0; display: flex; flex-direction: column; gap: 6px; }
+.empty-title { font: 600 1.1rem var(--font-display); }
+
+.banner { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; background: var(--note); color: var(--note-ink); padding: 10px 14px; border-radius: var(--radius); margin: 14px 0 0; }
+.banner .link { color: inherit; }
+.banner.error { background: var(--danger-soft); color: var(--danger); }
+.main .banner { margin: 0 0 14px; }
+
+.weeknav { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; }
+.week-range { font-weight: 600; }
+.days { display: flex; flex-direction: column; gap: 14px; }
+.day { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; }
+.day-title { margin: 0 0 8px; font-size: 1.05rem; }
+.slot { display: grid; grid-template-columns: 5.5rem minmax(0, 1fr); gap: 2px 12px; padding: 4px 0; border-top: 1px solid var(--line); align-items: start; }
+.slot h4 { padding-top: 9px; }
+/* flex-start: without it the "Add a recipe" buttons stretch to full width and centre their text */
+.slot-body { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; }
+.entry { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.entry-title { font-weight: 600; }
+.entry .servings { width: 4.5rem; }
+.add-meal { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.add-meal select { flex: 1 1 10rem; width: auto; }
+.add-meal input { width: 6.5rem; }
+
+.inline-form, .add-item { display: grid; grid-template-columns: 4.5rem 5.5rem minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+.inline-form { grid-template-columns: minmax(0, 1fr) auto; }
+.aisle { margin-top: 6px; }
+.aisle-title { margin: 14px 0 4px; font: 600 .8125rem var(--font-body); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.rows.tight > li.item { display: flex; align-items: center; justify-content: space-between; gap: 4px; }
+.check { display: flex; align-items: center; gap: 12px; padding: 10px 2px; flex: 1; cursor: pointer; min-width: 0; }
+.done { color: var(--muted); text-decoration: line-through; }
+
+@media (max-width: 520px) {
+  .two { grid-template-columns: minmax(0, 1fr); }
+  .slot { grid-template-columns: minmax(0, 1fr); }
+  .slot h4 { padding-top: 6px; }
+  .entry-title { flex-basis: 100%; }
+  .ing-row, .add-item { grid-template-columns: 4rem 4.5rem minmax(0, 1fr) auto; gap: 6px; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .btn, .chip, .tab { transition: background-color .12s, border-color .12s, color .12s; }
+}
+</style>
+<div id="root">
+  <div class="app"><header class="top"><h1 class="brand">Meal Planner</h1></header><main class="main"><p class="muted">Loading your kitchen…</p></main></div>
+</div>
+<!--SCRIPTS-->

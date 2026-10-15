@@ -37,6 +37,22 @@ Known gaps: no email verification or password reset yet.
 
 `lib/ingredients.ts` holds the unit-normalizing ingredient merge used for shopping lists.
 
+## Hosted version (claude.ai Artifact)
+
+A single-user version of the app runs as a private page on claude.ai, with no server or database to run:
+https://claude.ai/artifact/7Y6W3zydkv5T6bH1vcgyZ9 (readable only by its owner).
+
+- Source is in `artifact/`: React 18 (pinned UMD from cdnjs) bundled with esbuild into one HTML fragment.
+  It reuses the tested logic from `lib/` (ingredient merging, fractions, dates, aisle categories, list building).
+- Data lives in the artifact's own `db` (collections `recipes`, `plan` per day, `lists`), under a rule that only the
+  owner can read or write. Sign-in is your claude.ai account, so there is no signup, household or rate limiting here.
+- `npm run build:artifact` writes `artifact/dist/meal-planner.html`; publish that file with the Artifact tool.
+- `npm run test:artifact` runs the built page in Playwright against an in-memory fake of the `db` runtime
+  (`artifact/e2e/harness.ts`), including slow and failing saves. The pinned React copies in
+  `artifact/test/vendor/` exist only to answer the page's cdnjs requests offline.
+- Limits: one person, data is separate from the Postgres app, no export yet, and the 25,000-document /
+  256 KiB-per-document caps of artifact storage apply.
+
 ## Deploying (Vercel + managed Postgres)
 
 The app is a standard Next.js app with a Postgres database, so any host that runs Next.js works.
