@@ -50,6 +50,16 @@ https://claude.ai/artifact/7Y6W3zydkv5T6bH1vcgyZ9 (readable only by its owner).
 - `npm run test:artifact` runs the built page in Playwright against an in-memory fake of the `db` runtime
   (`artifact/e2e/harness.ts`), including slow and failing saves. The pinned React copies in
   `artifact/test/vendor/` exist only to answer the page's cdnjs requests offline.
+- Arabic and English: a switch in the header (default Arabic, right-to-left; the choice is saved in the artifact `db`
+  as `meta/settings`, so every device agrees). UI text lives in `artifact/src/i18n.ts` (a test keeps both tables in
+  step). Stored data keeps English keys (`DINNER`, `Produce`, `kg`), so nothing depends on the language.
+- Arabic matching (shared with the Next app, in `lib/arabic.ts`): أرز / ارز / رز / الأرز are one ingredient on a list
+  (the first spelling written is shown), Arabic unit words (كيلو، جم، كوب، ملعقة كبيرة ...) merge with their English
+  equivalents, Arabic digits (٢) and the comma (،) are accepted, and aisles are guessed from Arabic names. Matching is
+  deliberately simple: no plurals or word roots, so two different spellings of the same word (e.g. بامية / بامياء)
+  stay separate lines.
+- A dish can be saved with just a name and given ingredients later; a list says which planned dishes it left out
+  because they have no ingredients yet.
 - Limits: one person, data is separate from the Postgres app, no export yet, and the 25,000-document /
   256 KiB-per-document caps of artifact storage apply.
 

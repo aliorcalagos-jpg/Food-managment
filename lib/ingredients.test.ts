@@ -108,3 +108,46 @@ describe("mergeIngredients", () => {
     expect(out.quantity).toBeCloseTo(2 / 3, 5);
   });
 });
+
+describe("mergeIngredients with Arabic", () => {
+  it("merges every spelling of rice and keeps the first spelling written", () => {
+    expect(
+      mergeIngredients([
+        { name: "أرز", quantity: 1, unit: "كوب" },
+        { name: "رز", quantity: 2, unit: "أكواب" },
+        { name: "الأرز", quantity: 0.5, unit: "cup" },
+      ]),
+    ).toEqual([{ name: "أرز", quantity: 3.5, unit: "cup" }]);
+  });
+
+  it("understands Arabic units and converts mixed ones", () => {
+    expect(
+      mergeIngredients([
+        { name: "دجاج", quantity: 1, unit: "كيلو" },
+        { name: "دجاج", quantity: 500, unit: "جم" },
+      ]),
+    ).toEqual([{ name: "دجاج", quantity: 1.5, unit: "kg" }]);
+  });
+
+  it("merges counts written as حبة with plain numbers", () => {
+    expect(
+      mergeIngredients([
+        { name: "بصل", quantity: 1, unit: "حبة" },
+        { name: "بصل", quantity: 2, unit: "" },
+      ]),
+    ).toEqual([{ name: "بصل", quantity: 3, unit: "" }]);
+  });
+
+  it("does not merge different ingredients", () => {
+    const out = mergeIngredients([
+      { name: "رز", quantity: 1, unit: "كوب" },
+      { name: "رز بسمتي", quantity: 1, unit: "كوب" },
+    ]);
+    expect(out).toHaveLength(2);
+  });
+
+  it("matches Arabic units with tashkeel and the full tablespoon phrase", () => {
+    expect(normalizeUnit("مِلْعَقَة كبيرة")).toBe("tbsp");
+    expect(normalizeUnit("ملعقة صغيرة")).toBe("tsp");
+  });
+});

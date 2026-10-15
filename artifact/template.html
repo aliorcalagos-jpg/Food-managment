@@ -1,6 +1,6 @@
 <title>Meal Planner</title>
 <meta name="claude:viewport-fit-sides" content="cover">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Instrument+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Instrument+Sans:wght@400;500;600&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap">
 <style>
 /* Layout: one narrow column like a kitchen notepad. A sticky header holds the name and three tabs;
    every list is a ruled row, and only the day blocks and the generator form are carded. */
@@ -18,8 +18,8 @@
   --note: #fbf0cd;
   --note-ink: #5a4300;
   --focus: #0b57d0;
-  --font-body: "Instrument Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-display: "Bricolage Grotesque", "Instrument Sans", system-ui, sans-serif;
+  --font-body: "Instrument Sans", "IBM Plex Sans Arabic", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: "Bricolage Grotesque", "IBM Plex Sans Arabic", "Instrument Sans", system-ui, sans-serif;
   --radius: 10px;
 }
 @media (prefers-color-scheme: dark) {
@@ -51,6 +51,11 @@ h4 { font-size: .8125rem; font-weight: 600; letter-spacing: .06em; text-transfor
 p { margin: 0; }
 a { color: var(--accent); }
 .num { font-variant-numeric: tabular-nums; }
+.arrow { display: inline-block; }
+[dir="rtl"] .arrow { transform: scaleX(-1); }
+/* Arabic joins letters, so letter-spacing and forced capitals would break the words */
+[dir="rtl"] h4, [dir="rtl"] .aisle-title { letter-spacing: 0; text-transform: none; }
+.stack > .link { align-self: flex-start; }
 .muted { color: var(--muted); }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; border-radius: 4px; }
@@ -60,7 +65,10 @@ a { color: var(--accent); }
   position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--bg);
   padding: 14px 0 0; border-bottom: 1px solid var(--line);
 }
+.top-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .brand { font-size: 1.25rem; font-weight: 700; }
+.lang-switch { text-decoration: none; border: 1px solid var(--line); border-radius: 999px; padding: 4px 14px; min-height: 36px; color: var(--ink); }
+.lang-switch:hover { border-color: var(--accent); color: var(--accent); }
 .tabs { display: flex; gap: 4px; margin-top: 10px; }
 .tab {
   appearance: none; border: 0; background: none; color: var(--muted); font: inherit; font-weight: 600;
@@ -106,17 +114,18 @@ fieldset { border: 0; padding: 0; margin: 0; min-width: 0; display: flex; flex-d
 .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 14px; }
 .chip { font: inherit; font-size: .875rem; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer; min-height: 36px; }
 .chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
-.pill { display: inline-block; margin-left: 10px; padding: 1px 9px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font: 600 .75rem var(--font-body); vertical-align: middle; }
+.pill { display: inline-block; margin-inline-start: 10px; padding: 1px 9px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font: 600 .75rem var(--font-body); vertical-align: middle; }
 
 .rows { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
 .rows > li { border-bottom: 1px solid var(--line); }
-.row-btn { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 2px 16px; width: 100%; text-align: left; background: none; border: 0; padding: 14px 2px; font: inherit; color: inherit; cursor: pointer; min-height: 44px; }
+.row-btn { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 2px 16px; width: 100%; text-align: start; background: none; border: 0; padding: 14px 2px; font: inherit; color: inherit; cursor: pointer; min-height: 44px; }
 .row-btn:hover .row-title { color: var(--accent); }
 .row-title { font-weight: 600; }
-.ingredients { margin: 8px 0 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
+.ingredients { margin: 8px 0 0; padding-inline-start: 20px; display: flex; flex-direction: column; gap: 4px; }
 .prose { white-space: pre-wrap; max-width: 65ch; margin-top: 8px; }
 
 .ing-row { display: grid; grid-template-columns: 4.5rem 5.5rem minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+.empty-inline { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; margin-top: 8px; }
 .empty { padding: 28px 0; display: flex; flex-direction: column; gap: 6px; }
 .empty-title { font: 600 1.1rem var(--font-display); }
 

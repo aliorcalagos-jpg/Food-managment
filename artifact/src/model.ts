@@ -3,6 +3,7 @@
 import type { Ingredient } from "../../lib/ingredients";
 import { buildListItems } from "../../lib/list-build";
 import type { MealTypeName } from "../../lib/meals";
+import type { Msg } from "./i18n";
 import { addDays, parseISODate, toISODate } from "../../lib/week";
 
 export type { Ingredient };
@@ -138,11 +139,14 @@ export function datesInRange(startISO: string, endISO: string): string[] {
 
 export const MAX_LIST_RANGE_DAYS = 62;
 
-export type GenerateResult = { ok: true; list: Omit<ShoppingList, "id" | "createdAt"> } | { ok: false; error: string };
+export type GenerateResult =
+  | { ok: true; list: Omit<ShoppingList, "id" | "createdAt">; skipped: string[] }
+  | { ok: false; error: Msg };
 
 /**
  * Builds a list from the planned meals in [start, end] (inclusive): scale each
- * meal's ingredients to its planned servings, merge, and tag aisles.
+ * meal's ingredients to its planned servings, merge, and tag aisles. Planned dishes that have
+ * no ingredients yet are left out and reported in `skipped`, so the list never silently misses one.
  */
 export function generateList(
   input: { name: string; start: string; end: string },
@@ -151,24 +155,32 @@ export function generateList(
 ): GenerateResult {
   const start = parseISODate(input.start);
   const end = parseISODate(input.end);
-  if (!start || !end) return { ok: false, error: "Pick a start and end date." };
-  if (end < start) return { ok: false, error: "The end date must be on or after the start date." };
+  if (!start || !end) return { ok: false, error: { key: "errPickDates" } };
+  if (end < start) return { ok: false, error: { key: "errEndBefore" } };
   const range = datesInRange(input.start, input.end);
-  if (range.length > MAX_LIST_RANGE_DAYS) return { ok: false, error: `Pick at most ${MAX_LIST_RANGE_DAYS} days.` };
+  if (range.length > MAX_LIST_RANGE_DAYS) return { ok: false, error: { key: "errRangeLong", params: { max: MAX_LIST_RANGE_DAYS } } };
 
   const byId = new Map(recipes.map((r) => [r.id, r]));
   const inRange = new Set(range);
-  const meals = days
+  const planned = days
     .filter((d) => inRange.has(d.date))
     .flatMap((d) => d.entries)
     .flatMap((e) => {
       const recipe = byId.get(e.recipeId);
       return recipe ? [{ servings: e.servings, recipe }] : [];
     });
-  if (meals.length === 0) return { ok: false, error: "No meals are planned between those dates. Add some in the planner first." };
+  if (planned.length === 0) return { ok: false, error: { key: "errNoMeals" } };
+
+  const skipped = [...new Set(planned.filter((m) => m.recipe.ingredients.length === 0).map((m) => m.recipe.title))];
+  const meals = planned.filter((m) => m.recipe.ingredients.length > 0);
+  if (meals.length === 0) return { ok: false, error: { key: "errOnlyEmptyDishes", params: { names: skipped.join(" · ") } } };
 
   const items: ListItem[] = buildListItems(meals).map((i) => ({ ...i, id: newId(), checked: false }));
-  return { ok: true, list: { name: input.name.trim() || `Meals ${input.start} to ${input.end}`, rangeStart: input.start, rangeEnd: input.end, items } };
+  return {
+    ok: true,
+    skipped,
+    list: { name: input.name.trim() || `Meals ${input.start} to ${input.end}`, rangeStart: input.start, rangeEnd: input.end, items },
+  };
 }
 
 export const toggleItem = (list: ShoppingList, itemId: string, checked: boolean): ShoppingList => ({

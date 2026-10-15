@@ -1,3 +1,5 @@
+import { hasArabic, normalizeArabic } from "./arabic";
+
 export const CATEGORIES = ["Produce", "Meat & fish", "Dairy & eggs", "Bakery", "Pantry", "Frozen", "Other"] as const;
 export type Category = (typeof CATEGORIES)[number];
 
@@ -50,7 +52,54 @@ const RULES: [Category, RegExp][] = [
   ],
 ];
 
+// \b only knows Latin letters, so Arabic names are matched on normalised whole words or phrases
+// (keywords below are written naturally and normalised the same way as the name).
+const AR_RULES: [Category, string[]][] = [
+  ["Frozen", ["مجمد", "مجمده", "مثلجات", "ايس كريم", "بوظه"]],
+  [
+    "Pantry",
+    [
+      "معجون طماطم", "صلصه طماطم", "صلصه", "مرق", "مكعبات مرق", "زيت", "زيت زيتون", "فلفل اسود", "بهارات", "بهار",
+      "حليب جوز الهند", "زبده فول سوداني", "فاصولياء بيضاء", "فاصوليا بيضاء", "فاصولياء جافه", "فاصوليا جافه", "معلب", "معلبه",
+    ],
+  ],
+  ["Dairy & eggs", ["حليب", "لبن", "جبن", "جبنه", "زبده", "قشطه", "كريمه", "بيض", "زبادي", "روب", "لبنه", "سمن", "قشده"]],
+  [
+    "Meat & fish",
+    ["دجاج", "فراخ", "لحم", "لحمه", "كفته", "ضان", "بقري", "خروف", "عجل", "سمك", "جمبري", "روبيان", "ديك رومي", "نقانق", "سجق", "كبده", "مفروم", "ستيك", "همبرجر"],
+  ],
+  ["Bakery", ["خبز", "عيش", "توست", "صمون", "فطير", "كعك", "باجيت"]],
+  [
+    "Produce",
+    [
+      "طماطم", "بندوره", "بصل", "ثوم", "بطاطس", "بطاطا", "جزر", "خيار", "ليمون", "بازيلاء", "باميه", "بامياء", "فاصولياء", "فاصوليا",
+      "كوسه", "باذنجان", "فلفل", "خس", "سبانخ", "كزبره", "بقدونس", "نعناع", "تفاح", "موز", "برتقال", "ملوخيه", "قرنبيط", "ملفوف", "كرنب",
+      "فجل", "بنجر", "ذره", "فطر", "عنب", "فراوله", "مانجو", "بطيخ", "شمام", "كراث", "جرجير", "شبت", "خضار", "فاكهه", "سلطه",
+    ],
+  ],
+  [
+    "Pantry",
+    [
+      "ارز", "عدس", "حمص", "فول", "معكرونه", "مكرونه", "سباغيتي", "شعيريه", "سكر", "ملح", "دقيق", "طحين", "عسل", "خل", "معجون", "كمون",
+      "كركم", "قرفه", "برغل", "فريكه", "شاي", "قهوه", "نشا", "خميره", "بقوليات", "لوز", "جوز", "مكسرات", "زبيب", "رب", "تونه", "كاتشب", "مايونيز",
+    ],
+  ],
+];
+const AR_RULES_NORMALISED = AR_RULES.map(([cat, kws]) => [cat, kws.map(normalizeArabic)] as const);
+
+function categorizeArabic(name: string): Category | null {
+  const padded = ` ${normalizeArabic(name)} `;
+  for (const [category, keywords] of AR_RULES_NORMALISED) {
+    if (keywords.some((kw) => padded.includes(` ${kw} `))) return category;
+  }
+  return null;
+}
+
 export function categorize(name: string): Category {
+  if (hasArabic(name)) {
+    const found = categorizeArabic(name);
+    if (found) return found;
+  }
   const n = name.trim().toLowerCase();
   for (const [category, re] of RULES) if (re.test(n)) return category;
   return "Other";

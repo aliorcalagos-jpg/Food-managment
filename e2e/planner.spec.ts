@@ -65,7 +65,11 @@ test("plan meals across a week", async ({ page, browser }) => {
   // edit servings, persists after reload
   const dinner = slot(wed, "Dinner");
   await dinner.getByRole("spinbutton", { name: `Servings for ${tag} Soup` }).fill("3");
-  await dinner.getByRole("button", { name: "Update" }).click();
+  // wait for the save (a Server Action POST) to finish, or the reload can beat it
+  await Promise.all([
+    page.waitForResponse((r) => r.request().method() === "POST" && r.url().includes("/planner")),
+    dinner.getByRole("button", { name: "Update" }).click(),
+  ]);
   await page.reload();
   await expect(slot(day(page, "Wednesday, Oct 14"), "Dinner").getByRole("spinbutton")).toHaveValue("3");
 

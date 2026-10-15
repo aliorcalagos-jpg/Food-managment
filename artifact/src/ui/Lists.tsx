@@ -1,36 +1,41 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { categorize } from "../../../lib/categories";
 import { groupItems } from "../../../lib/list-build";
-import { formatQuantity, parseQuantity } from "../../../lib/quantity";
+import { parseQuantity } from "../../../lib/quantity";
 import { addDays, formatRange, parseISODate, startOfWeek, toISODate } from "../../../lib/week";
+import { aisleLabel, useI18n, type Msg } from "../i18n";
 import { addItem, clearChecked, generateList, removeItem, toggleItem, type PlanDay, type Recipe, type ShoppingList } from "../model";
 import type { Store } from "../store";
 import { todayISO } from "../today";
-import { ConfirmAction, Empty, FieldError } from "./common";
+import { Arrow, ConfirmAction, Empty, FieldError, ItemLabel } from "./common";
 
-type View = { kind: "index" } | { kind: "detail"; id: string };
+type View = { kind: "index" } | { kind: "detail"; id: string; skipped?: string[] };
 
 export function Lists({ store, lists, recipes, days }: { store: Store; lists: ShoppingList[]; recipes: Recipe[]; days: PlanDay[] }) {
   const [view, setView] = useState<View>({ kind: "index" });
   if (view.kind === "detail") {
-    return <ListDetail store={store} list={lists.find((l) => l.id === view.id)} onBack={() => setView({ kind: "index" })} />;
+    return <ListDetail store={store} list={lists.find((l) => l.id === view.id)} skipped={view.skipped} onBack={() => setView({ kind: "index" })} />;
   }
-  return <ListIndex store={store} lists={lists} recipes={recipes} days={days} onOpen={(id) => setView({ kind: "detail", id })} />;
+  return <ListIndex store={store} lists={lists} recipes={recipes} days={days} onOpen={(id, skipped) => setView({ kind: "detail", id, skipped })} />;
 }
 
-function ListIndex({ store, lists, recipes, days, onOpen }: { store: Store; lists: ShoppingList[]; recipes: Recipe[]; days: PlanDay[]; onOpen: (id: string) => void }) {
+function ListIndex({ store, lists, recipes, days, onOpen }: { store: Store; lists: ShoppingList[]; recipes: Recipe[]; days: PlanDay[]; onOpen: (id: string, skipped?: string[]) => void }) {
+  const { t, lang } = useI18n();
   const monday = startOfWeek(parseISODate(todayISO())!);
   const [v, setV] = useState({ name: "", start: toISODate(monday), end: toISODate(addDays(monday, 6)) });
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Msg | null>(null);
   const [blank, setBlank] = useState("");
 
   async function generate(e: React.FormEvent) {
     e.preventDefault();
-    const result = generateList(v, recipes, days);
+    // a default name in the current language, e.g. "وجبات 12 أكتوبر – 18 أكتوبر 2026"
+    const [a, b] = [parseISODate(v.start), parseISODate(v.end)];
+    const fallback = a && b ? t("defaultListName", { range: formatRange(a, b, lang) }) : "";
+    const result = generateList({ ...v, name: v.name.trim() || fallback }, recipes, days);
     if (!result.ok) return setError(result.error);
     setError(null);
     const id = await store.createList({ ...result.list, createdAt: new Date().toISOString() });
-    if (id) onOpen(id);
+    if (id) onOpen(id, result.skipped);
   }
 
   async function createBlank(e: React.FormEvent) {
@@ -48,42 +53,42 @@ function ListIndex({ store, lists, recipes, days, onOpen }: { store: Store; list
 
   return (
     <section aria-labelledby="lists-h" className="stack">
-      <h2 id="lists-h">Shopping lists</h2>
+      <h2 id="lists-h">{t("listsH")}</h2>
 
       <form onSubmit={generate} className="card stack" noValidate>
-        <h3>New list from your meal plan</h3>
+        <h3>{t("newListFromPlan")}</h3>
         <div className="two">
           <div className="field">
-            <label htmlFor="gen-start">From</label>
+            <label htmlFor="gen-start">{t("from")}</label>
             <input id="gen-start" type="date" value={v.start} onChange={(e) => setV({ ...v, start: e.target.value })} />
           </div>
           <div className="field">
-            <label htmlFor="gen-end">To</label>
+            <label htmlFor="gen-end">{t("to")}</label>
             <input id="gen-end" type="date" value={v.end} onChange={(e) => setV({ ...v, end: e.target.value })} aria-describedby="gen-err" />
           </div>
         </div>
         <div className="field">
-          <label htmlFor="gen-name">Name (optional)</label>
-          <input id="gen-name" maxLength={80} placeholder="e.g. Saturday shop" value={v.name} onChange={(e) => setV({ ...v, name: e.target.value })} />
+          <label htmlFor="gen-name">{t("listName")}</label>
+          <input id="gen-name" dir="auto" maxLength={80} placeholder={t("phListName")} value={v.name} onChange={(e) => setV({ ...v, name: e.target.value })} />
         </div>
-        <FieldError id="gen-err">{error}</FieldError>
+        <FieldError id="gen-err" msg={error} />
         <button type="submit" className="btn primary">
-          Generate from meal plan
+          {t("generate")}
         </button>
       </form>
 
       <form onSubmit={createBlank} className="inline-form">
         <label className="sr-only" htmlFor="blank-name">
-          New empty list name
+          {t("blankLabel")}
         </label>
-        <input id="blank-name" maxLength={80} placeholder="Or start an empty list" value={blank} onChange={(e) => setBlank(e.target.value)} />
+        <input id="blank-name" dir="auto" maxLength={80} placeholder={t("phBlank")} value={blank} onChange={(e) => setBlank(e.target.value)} />
         <button type="submit" className="btn ghost">
-          Create
+          {t("create")}
         </button>
       </form>
 
       {sorted.length === 0 ? (
-        <Empty title="No lists yet">Plan some meals, then generate one above.</Empty>
+        <Empty title={t("noLists")}>{t("noListsHint")}</Empty>
       ) : (
         <ul className="rows">
           {sorted.map((l) => {
@@ -92,14 +97,12 @@ function ListIndex({ store, lists, recipes, days, onOpen }: { store: Store; list
               <li key={l.id}>
                 <button type="button" className="row-btn" onClick={() => onOpen(l.id)}>
                   <span className="row-title">
-                    {l.name}
+                    <bdi>{l.name}</bdi>
                     {l.rangeStart && l.rangeEnd && (
-                      <span className="muted num"> · {formatRange(parseISODate(l.rangeStart)!, parseISODate(l.rangeEnd)!)}</span>
+                      <span className="muted num"> · {formatRange(parseISODate(l.rangeStart)!, parseISODate(l.rangeEnd)!, lang)}</span>
                     )}
                   </span>
-                  <span className="muted num">
-                    {done} of {l.items.length} done
-                  </span>
+                  <span className="muted num">{t("progress", { done, total: l.items.length })}</span>
                 </button>
               </li>
             );
@@ -110,15 +113,17 @@ function ListIndex({ store, lists, recipes, days, onOpen }: { store: Store; list
   );
 }
 
-function ListDetail({ store, list, onBack }: { store: Store; list: ShoppingList | undefined; onBack: () => void }) {
+function ListDetail({ store, list, skipped, onBack }: { store: Store; list: ShoppingList | undefined; skipped?: string[]; onBack: () => void }) {
+  const { t, lang } = useI18n();
   const [item, setItem] = useState({ quantity: "", unit: "", name: "" });
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Msg | null>(null);
+  const [noteOpen, setNoteOpen] = useState(true);
 
   if (!list) {
     return (
-      <Empty title="That list isn't here any more">
+      <Empty title={t("listGone")}>
         <button type="button" className="link" onClick={onBack}>
-          Back to lists
+          {t("backToListsPlain")}
         </button>
       </Empty>
     );
@@ -130,9 +135,9 @@ function ListDetail({ store, list, onBack }: { store: Store; list: ShoppingList 
   function add(e: React.FormEvent) {
     e.preventDefault();
     const name = item.name.trim();
-    if (!name) return setError("Enter an item name.");
+    if (!name) return setError({ key: "errItemName" });
     const quantity = item.quantity.trim() === "" ? 1 : parseQuantity(item.quantity);
-    if (quantity === null || quantity > 100000) return setError("Use a number like 2, 0.5 or 1/2.");
+    if (quantity === null || quantity > 100000) return setError({ key: "errItemQty" });
     setError(null);
     void update((l) => addItem(l, { name, quantity, unit: item.unit.trim(), category: categorize(name) }));
     setItem({ quantity: "", unit: "", name: "" });
@@ -141,13 +146,13 @@ function ListDetail({ store, list, onBack }: { store: Store; list: ShoppingList 
   return (
     <section className="stack">
       <button type="button" className="link" onClick={onBack}>
-        ← All lists
+        <Arrow /> {t("backToLists")}
       </button>
       <div className="page-head">
-        <h2>{list.name}</h2>
+        <h2 dir="auto">{list.name}</h2>
         <ConfirmAction
-          label="Delete list"
-          confirmLabel="Delete this list"
+          label={t("deleteList")}
+          confirmLabel={t("deleteListConfirm")}
           onConfirm={async () => {
             await store.deleteList(list.id);
             onBack();
@@ -155,37 +160,44 @@ function ListDetail({ store, list, onBack }: { store: Store; list: ShoppingList 
         />
       </div>
       <p className="muted num">
-        {list.rangeStart && list.rangeEnd && <>{formatRange(parseISODate(list.rangeStart)!, parseISODate(list.rangeEnd)!)} · </>}
-        <span aria-live="polite">
-          {done} of {list.items.length} done
-        </span>
+        {list.rangeStart && list.rangeEnd && <>{formatRange(parseISODate(list.rangeStart)!, parseISODate(list.rangeEnd)!, lang)} · </>}
+        <span aria-live="polite">{t("progress", { done, total: list.items.length })}</span>
       </p>
 
-      <form onSubmit={add} className="add-item" noValidate>
-        <label className="sr-only" htmlFor="item-qty">Quantity</label>
-        <input id="item-qty" inputMode="decimal" placeholder="1" value={item.quantity} onChange={(e) => setItem({ ...item, quantity: e.target.value })} />
-        <label className="sr-only" htmlFor="item-unit">Unit</label>
-        <input id="item-unit" placeholder="unit" value={item.unit} onChange={(e) => setItem({ ...item, unit: e.target.value })} />
-        <label className="sr-only" htmlFor="item-name">Item name</label>
-        <input id="item-name" placeholder="Add an item" value={item.name} onChange={(e) => setItem({ ...item, name: e.target.value })} />
-        <button type="submit" className="btn primary">Add</button>
-      </form>
-      <FieldError id="item-err">{error}</FieldError>
+      {skipped && skipped.length > 0 && noteOpen && (
+        <div className="banner" role="note">
+          <span>{t("noteSkipped", { names: skipped.join(" · ") })}</span>
+          <button type="button" className="link" onClick={() => setNoteOpen(false)}>
+            {t("dismiss")}
+          </button>
+        </div>
+      )}
 
-      {list.items.length === 0 && <Empty title="This list is empty">Add your first item above.</Empty>}
+      <form onSubmit={add} className="add-item" noValidate>
+        <label className="sr-only" htmlFor="item-qty">{t("itemQty")}</label>
+        <input id="item-qty" inputMode="decimal" placeholder="1" value={item.quantity} onChange={(e) => setItem({ ...item, quantity: e.target.value })} />
+        <label className="sr-only" htmlFor="item-unit">{t("itemUnit")}</label>
+        <input id="item-unit" dir="auto" placeholder={t("phUnit")} value={item.unit} onChange={(e) => setItem({ ...item, unit: e.target.value })} />
+        <label className="sr-only" htmlFor="item-name">{t("itemName")}</label>
+        <input id="item-name" dir="auto" placeholder={t("phItemName")} value={item.name} onChange={(e) => setItem({ ...item, name: e.target.value })} />
+        <button type="submit" className="btn primary">{t("add")}</button>
+      </form>
+      <FieldError id="item-err" msg={error} />
+
+      {list.items.length === 0 && <Empty title={t("listEmpty")}>{t("listEmptyHint")}</Empty>}
 
       {groupItems(list.items).map((g) => (
-        <section key={g.category} aria-label={g.category} className="aisle">
-          <h3 className="aisle-title">{g.category}</h3>
+        <section key={g.category} aria-label={aisleLabel(lang, g.category)} className="aisle">
+          <h3 className="aisle-title">{aisleLabel(lang, g.category)}</h3>
           <ul className="rows tight">
             {g.items.map((i) => (
               <li key={i.id} className="item">
                 <ItemCheck
                   checked={i.checked}
-                  label={[formatQuantity(i.quantity), i.unit, i.name].filter(Boolean).join(" ")}
+                  label={<ItemLabel quantity={i.quantity} unit={i.unit} name={i.name} />}
                   onChange={(next) => update((l) => toggleItem(l, i.id, next))}
                 />
-                <button type="button" className="icon-btn" aria-label={`Remove ${i.name}`} onClick={() => void update((l) => removeItem(l, i.id))}>
+                <button type="button" className="icon-btn" aria-label={t("removeItem", { name: i.name })} onClick={() => void update((l) => removeItem(l, i.id))}>
                   ✕
                 </button>
               </li>
@@ -195,12 +207,7 @@ function ListDetail({ store, list, onBack }: { store: Store; list: ShoppingList 
       ))}
 
       {done > 0 && (
-        <ConfirmAction
-          label={`Clear ${done} checked item${done === 1 ? "" : "s"}`}
-          confirmLabel="Remove checked items"
-          className="link"
-          onConfirm={() => void update(clearChecked)}
-        />
+        <ConfirmAction label={done === 1 ? t("clearChecked1") : t("clearCheckedN", { n: done })} confirmLabel={t("clearCheckedConfirm")} className="link" onConfirm={() => void update(clearChecked)} />
       )}
     </section>
   );
@@ -210,7 +217,7 @@ function ListDetail({ store, list, onBack }: { store: Store; list: ShoppingList 
  * Flips at once and saves in the background. It shows the viewer's tap until the save settles,
  * then goes back to the stored value, so a failed save un-ticks the box instead of lying.
  */
-function ItemCheck({ checked, label, onChange }: { checked: boolean; label: string; onChange: (next: boolean) => Promise<unknown> }) {
+function ItemCheck({ checked, label, onChange }: { checked: boolean; label: ReactNode; onChange: (next: boolean) => Promise<unknown> }) {
   const [pending, setPending] = useState<boolean | null>(null);
   return (
     <label className="check">

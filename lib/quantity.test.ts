@@ -40,3 +40,18 @@ describe("formatQuantity", () => {
     expect(n).toBe(1 / 3);
   });
 });
+
+describe("parseQuantity with Arabic input", () => {
+  it.each([
+    ["٢", 2],
+    ["٠٫٥", 0.5],
+    ["٢،٥", 2.5],
+    ["١/٢", 0.5],
+    ["١ ١/٢", 1.5],
+    ["۳", 3],
+  ])("parses %s", (input, expected) => expect(parseQuantity(input)).toBe(expected));
+  it("still rejects junk and zero", () => {
+    expect(parseQuantity("كثير")).toBeNull();
+    expect(parseQuantity("٠")).toBeNull();
+  });
+});

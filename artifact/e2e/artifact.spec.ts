@@ -48,9 +48,9 @@ test("recipes, planner and shopping list end to end", async ({ page }) => {
   await page.getByRole("button", { name: "Cancel" }).click();
 
   await addRecipe(page, "Pasta", "4", [["400", "g", "spaghetti"], ["2", "cup", "milk"], ["3", "", "tomatoes"]]);
-  await page.getByRole("button", { name: "← All recipes" }).click();
+  await page.getByRole("button", { name: "All recipes" }).click();
   await addRecipe(page, "Bake", "2", [["1", "kg", "spaghetti"]]);
-  await page.getByRole("button", { name: "← All recipes" }).click();
+  await page.getByRole("button", { name: "All recipes" }).click();
 
   // search by ingredient, then by title, with clear filters
   await page.getByLabel("Search recipes").fill("MILK");

@@ -32,21 +32,26 @@ export function resolveWeekStart(input: string | undefined, now: Date = new Date
   return startOfWeek((input && parseISODate(input)) || now);
 }
 
-export function formatDay(d: Date): string {
-  return d.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric", timeZone: "UTC" });
+/** Arabic with Western digits, so dates read like the quantities. Everything else is English. */
+export const localeFor = (lang: "en" | "ar" = "en") => (lang === "ar" ? "ar-u-nu-latn" : "en-US");
+
+export function formatDay(d: Date, lang: "en" | "ar" = "en"): string {
+  return d.toLocaleDateString(localeFor(lang), { weekday: "long", month: "short", day: "numeric", timeZone: "UTC" });
 }
 
-export function formatWeekRange(start: Date): string {
+export function formatWeekRange(start: Date, lang: "en" | "ar" = "en"): string {
+  const loc = localeFor(lang);
   const opts = { month: "short", day: "numeric", timeZone: "UTC" } as const;
   const end = addDays(start, 6);
-  return `${start.toLocaleDateString("en-US", opts)} – ${end.toLocaleDateString("en-US", { ...opts, year: "numeric" })}`;
+  return `${start.toLocaleDateString(loc, opts)} – ${end.toLocaleDateString(loc, { ...opts, year: "numeric" })}`;
 }
 
-export function formatRange(start: Date, end: Date): string {
+export function formatRange(start: Date, end: Date, lang: "en" | "ar" = "en"): string {
+  const loc = localeFor(lang);
   const opts = { month: "short", day: "numeric", timeZone: "UTC" } as const;
   const sameYear = start.getUTCFullYear() === end.getUTCFullYear();
-  const s = start.toLocaleDateString("en-US", sameYear ? opts : { ...opts, year: "numeric" });
-  return `${s} – ${end.toLocaleDateString("en-US", { ...opts, year: "numeric" })}`;
+  const s = start.toLocaleDateString(loc, sameYear ? opts : { ...opts, year: "numeric" });
+  return `${s} – ${end.toLocaleDateString(loc, { ...opts, year: "numeric" })}`;
 }
 
 export const MS_PER_DAY = 86_400_000;

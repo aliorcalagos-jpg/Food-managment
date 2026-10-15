@@ -1,3 +1,5 @@
+import { hasArabic, normalizeArabic } from "./arabic";
+
 export type Ingredient = {
   name: string;
   quantity: number;
@@ -50,12 +52,30 @@ const ALIASES: Record<string, string> = {
   pcs: "",
 };
 
+// Arabic unit words, keyed by their normalizeArabic form (ة -> ه, أ -> ا ...).
+const ARABIC_UNITS: Record<string, string> = {
+  كيلو: "kg", كجم: "kg", كغم: "kg", كيلوجرام: "kg", كيلوغرام: "kg",
+  جم: "g", غم: "g", جرام: "g", غرام: "g",
+  لتر: "l", ليتر: "l",
+  مل: "ml", ملل: "ml",
+  كوب: "cup", اكواب: "cup", كوبا: "cup",
+  "ملعقه كبيره": "tbsp", "ملاعق كبيره": "tbsp",
+  "ملعقه صغيره": "tsp", "ملاعق صغيره": "tsp",
+  اونصه: "oz", رطل: "lb",
+  حبه: "", حبات: "", قطعه: "", قطع: "", حبايه: "",
+};
+
 export function normalizeUnit(unit: string): string {
   const u = unit.trim().toLowerCase().replace(/\.$/, "");
+  if (hasArabic(u)) {
+    const a = normalizeArabic(u);
+    return a in ARABIC_UNITS ? ARABIC_UNITS[a] : a;
+  }
   return u in ALIASES ? ALIASES[u] : u;
 }
 
 export function normalizeName(name: string): string {
+  if (hasArabic(name)) return normalizeArabic(name);
   const n = name.trim().toLowerCase().replace(/\s+/g, " ");
   // naive singularisation so "tomatoes" and "tomato" merge
   if (n.endsWith("oes")) return n.slice(0, -2);

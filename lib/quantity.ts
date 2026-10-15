@@ -1,6 +1,11 @@
-/** Parse "2", "0.5", "1/2", "1 1/2" (also "½"-style is not supported). Returns null if invalid or <= 0. */
+import { toLatinDigits } from "./arabic";
+
+/**
+ * Parse "2", "0.5", "1/2", "1 1/2" (also Arabic digits like ٢ and decimal marks , ، ٫).
+ * Unicode fractions like "½" are not supported. Returns null if invalid or <= 0.
+ */
 export function parseQuantity(input: string): number | null {
-  const s = input.trim().replace(",", ".");
+  const s = toLatinDigits(input).trim().replace(/[,،]/, ".");
   if (!s) return null;
 
   const mixed = s.match(/^(\d+)\s+(\d+)\/(\d+)$/);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addDays, parseISODate, resolveWeekStart, startOfWeek, toISODate, weekDays } from "./week";
+import { addDays, formatDay, formatRange, formatWeekRange, parseISODate, resolveWeekStart, startOfWeek, toISODate, weekDays } from "./week";
 
 const d = (s: string) => parseISODate(s)!;
 
@@ -55,6 +55,21 @@ describe("resolveWeekStart", () => {
   it("falls back to the current week for missing or invalid input", () => {
     for (const bad of [undefined, "", "nonsense", "2026-02-30"]) {
       expect(toISODate(resolveWeekStart(bad, now))).toBe("2026-10-12");
+    }
+  });
+});
+
+describe("locale-aware dates", () => {
+  const wed = new Date("2026-10-14T00:00:00Z");
+  it("keeps English as the default", () => {
+    expect(formatDay(wed)).toBe("Wednesday, Oct 14");
+    expect(formatWeekRange(startOfWeek(wed))).toBe("Oct 12 – Oct 18, 2026");
+  });
+  it("formats Arabic with Arabic words but Western digits", () => {
+    for (const text of [formatDay(wed, "ar"), formatWeekRange(startOfWeek(wed), "ar"), formatRange(wed, wed, "ar")]) {
+      expect(text).toMatch(/[\u0600-\u06FF]/); // Arabic month/day names
+      expect(text).toMatch(/\d/); // digits present
+      expect(text).not.toMatch(/[\u0660-\u0669]/); // and they are Western (0-9)
     }
   });
 });

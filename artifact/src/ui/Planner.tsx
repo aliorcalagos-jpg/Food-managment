@@ -1,12 +1,14 @@
 import { useState } from "react";
-import { MEAL_LABELS, MEAL_TYPES, type MealTypeName } from "../../../lib/meals";
+import { MEAL_TYPES, type MealTypeName } from "../../../lib/meals";
 import { addDays, formatDay, formatWeekRange, parseISODate, startOfWeek, toISODate, weekDays } from "../../../lib/week";
+import { useI18n } from "../i18n";
 import { addMeal, newId, removeMeal, setMealServings, type PlanDay, type Recipe } from "../model";
 import type { Store } from "../store";
 import { todayISO } from "../today";
-import { Empty } from "./common";
+import { Arrow, Empty } from "./common";
 
 export function Planner({ store, recipes, days }: { store: Store; recipes: Recipe[]; days: PlanDay[] }) {
+  const { t, lang } = useI18n();
   const today = todayISO();
   const [weekStart, setWeekStart] = useState(() => startOfWeek(parseISODate(today)!));
   const thisWeek = toISODate(startOfWeek(parseISODate(today)!));
@@ -16,42 +18,42 @@ export function Planner({ store, recipes, days }: { store: Store; recipes: Recip
   return (
     <section aria-labelledby="planner-h">
       <div className="page-head">
-        <h2 id="planner-h">Meal planner</h2>
-        <nav aria-label="Week" className="weeknav">
+        <h2 id="planner-h">{t("plannerH")}</h2>
+        <nav aria-label={t("weekNav")} className="weeknav">
           <button type="button" className="link" onClick={() => setWeekStart(addDays(weekStart, -7))}>
-            ← Previous
+            <Arrow /> {t("prev")}
           </button>
           <span className="week-range num" aria-live="polite">
-            {formatWeekRange(weekStart)}
+            {formatWeekRange(weekStart, lang)}
           </span>
           <button type="button" className="link" onClick={() => setWeekStart(addDays(weekStart, 7))}>
-            Next →
+            {t("next")} <Arrow forward />
           </button>
           {toISODate(weekStart) !== thisWeek && (
             <button type="button" className="link" onClick={() => setWeekStart(startOfWeek(parseISODate(today)!))}>
-              This week
+              {t("thisWeek")}
             </button>
           )}
         </nav>
       </div>
 
-      {recipes.length === 0 && <Empty title="You need a recipe before you can plan meals">Add one in the Recipes tab.</Empty>}
+      {recipes.length === 0 && <Empty title={t("needRecipe")}>{t("needRecipeHint")}</Empty>}
 
       <div className="days">
         {weekDays(weekStart).map((date) => {
           const iso = toISODate(date);
           const day = byDate.get(iso);
           return (
-            <section key={iso} aria-label={formatDay(date)} className="day">
+            <section key={iso} aria-label={formatDay(date, lang)} className="day">
               <h3 className="day-title">
-                {formatDay(date)}
-                {iso === today && <span className="pill">Today</span>}
+                {formatDay(date, lang)}
+                {iso === today && <span className="pill">{t("today")}</span>}
               </h3>
               {MEAL_TYPES.map((meal) => (
                 <Slot
                   key={meal}
                   iso={iso}
-                  dayLabel={formatDay(date)}
+                  dayLabel={formatDay(date, lang)}
                   meal={meal}
                   entries={(day?.entries ?? []).filter((e) => e.mealType === meal)}
                   recipes={recipes}
@@ -84,6 +86,7 @@ function Slot({
   byId: Map<string, Recipe>;
   store: Store;
 }) {
+  const { t, lang } = useI18n();
   const [recipeId, setRecipeId] = useState("");
   const [servings, setServings] = useState("");
   const [open, setOpen] = useState(false);
@@ -102,38 +105,38 @@ function Slot({
 
   return (
     <div className="slot">
-      <h4>{MEAL_LABELS[meal]}</h4>
+      <h4>{t(meal)}</h4>
       <div className="slot-body">
         {entries.map((e) => (
-          <Entry key={e.id} entry={e} title={byId.get(e.recipeId)?.title ?? "Deleted recipe"} label={`${MEAL_LABELS[meal]} on ${dayLabel}`} iso={iso} store={store} />
+          <Entry key={e.id} entry={e} title={byId.get(e.recipeId)?.title ?? t("deletedRecipe")} meal={t(meal)} day={dayLabel} iso={iso} store={store} />
         ))}
         {recipes.length > 0 &&
           (open ? (
             <form onSubmit={add} className="add-meal">
               <label className="sr-only" htmlFor={`pick-${iso}-${meal}`}>
-                Recipe for {MEAL_LABELS[meal]} on {dayLabel}
+                {t("pickRecipe", { meal: t(meal), day: dayLabel })}
               </label>
               <select id={`pick-${iso}-${meal}`} value={chosen} onChange={(e) => setRecipeId(e.target.value)}>
-                {[...recipes].sort((a, b) => a.title.localeCompare(b.title)).map((r) => (
+                {[...recipes].sort((a, b) => a.title.localeCompare(b.title, lang)).map((r) => (
                   <option key={r.id} value={r.id}>
                     {r.title}
                   </option>
                 ))}
               </select>
               <label className="sr-only" htmlFor={`srv-${iso}-${meal}`}>
-                Servings (optional)
+                {t("servingsOptional")}
               </label>
-              <input id={`srv-${iso}-${meal}`} type="number" inputMode="numeric" min={1} max={100} placeholder="servings" value={servings} onChange={(e) => setServings(e.target.value)} />
+              <input id={`srv-${iso}-${meal}`} type="number" inputMode="numeric" min={1} max={100} placeholder={t("phServings")} value={servings} onChange={(e) => setServings(e.target.value)} />
               <button type="submit" className="btn primary">
-                Add
+                {t("add")}
               </button>
               <button type="button" className="btn ghost" onClick={() => setOpen(false)}>
-                Cancel
+                {t("cancel")}
               </button>
             </form>
           ) : (
             <button type="button" className="link" onClick={() => setOpen(true)}>
-              Add a recipe
+              {t("addRecipe")}
             </button>
           ))}
       </div>
@@ -141,7 +144,8 @@ function Slot({
   );
 }
 
-function Entry({ entry, title, label, iso, store }: { entry: PlanDay["entries"][number]; title: string; label: string; iso: string; store: Store }) {
+function Entry({ entry, title, meal, day, iso, store }: { entry: PlanDay["entries"][number]; title: string; meal: string; day: string; iso: string; store: Store }) {
+  const { t } = useI18n();
   const [draft, setDraft] = useState(String(entry.servings));
   const [synced, setSynced] = useState(entry.servings);
   if (synced !== entry.servings) {
@@ -158,9 +162,9 @@ function Entry({ entry, title, label, iso, store }: { entry: PlanDay["entries"][
 
   return (
     <div className="entry">
-      <span className="entry-title">{title}</span>
+      <bdi className="entry-title">{title}</bdi>
       <label className="sr-only" htmlFor={`s-${entry.id}`}>
-        Servings for {title}
+        {t("servingsFor", { title })}
       </label>
       <input
         id={`s-${entry.id}`}
@@ -174,14 +178,14 @@ function Entry({ entry, title, label, iso, store }: { entry: PlanDay["entries"][
         onBlur={commit}
         onKeyDown={(e) => e.key === "Enter" && commit()}
       />
-      <span className="muted">servings</span>
+      <span className="muted">{t("servingsWord")}</span>
       <button
         type="button"
         className="link danger"
-        aria-label={`Remove ${title} from ${label}`}
+        aria-label={t("removeFrom", { title, meal, day })}
         onClick={() => void store.updateDay(iso, (d) => (d ? removeMeal(d, entry.id) : { date: iso, entries: [] }))}
       >
-        Remove
+        {t("remove")}
       </button>
     </div>
   );

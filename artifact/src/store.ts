@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import type { Lang } from "./i18n";
 import { dropRecipe, newId, toList, toPlanDay, toRecipe, type PlanDay, type Recipe, type ShoppingList } from "./model";
 import type { Db, DocSnap } from "./runtime";
 
@@ -7,13 +8,17 @@ export type State = {
   recipes: Recipe[];
   days: PlanDay[];
   lists: ShoppingList[];
-  /** Last failed save, shown to the viewer until dismissed. */
+  /** The saved language, or null until one has been chosen (the page then uses its default). */
+  lang: Lang | null;
+  /** Why the last save failed (the runtime's own message), shown to the viewer until dismissed. */
   error: string | null;
 };
 
 export const EXAMPLE_TAG = "example";
 
-type CollectionName = "recipes" | "plan" | "lists";
+type CollectionName = "recipes" | "plan" | "lists" | "meta";
+
+const asLang = (v: unknown): Lang | null => (v === "en" || v === "ar" ? v : null);
 export type Store = ReturnType<typeof createStore>;
 
 export function createStore(db: Db | null) {
@@ -22,6 +27,7 @@ export function createStore(db: Db | null) {
     recipes: [],
     days: [],
     lists: [],
+    lang: null,
     error: null,
   };
   const listeners = new Set<() => void>();
@@ -32,7 +38,7 @@ export function createStore(db: Db | null) {
 
   // Subscribe once per collection; every view is derived from this state.
   if (db) {
-    const waiting = new Set<CollectionName>(["recipes", "plan", "lists"]);
+    const waiting = new Set<CollectionName>(["recipes", "plan", "lists", "meta"]);
     const watch = (name: CollectionName, apply: (docs: DocSnap[]) => Partial<State>) =>
       db.collection(name).onSnapshot(
         (snap) => {
@@ -44,6 +50,7 @@ export function createStore(db: Db | null) {
     watch("recipes", (docs) => ({ recipes: docs.map((d) => toRecipe(d.id, d.data() ?? {})) }));
     watch("plan", (docs) => ({ days: docs.map((d) => toPlanDay(d.id, d.data() ?? {})) }));
     watch("lists", (docs) => ({ lists: docs.map((d) => toList(d.id, d.data() ?? {})) }));
+    watch("meta", (docs) => ({ lang: asLang(docs.find((d) => d.id === "settings")?.data()?.lang) }));
   }
 
   // Own edits go into local state at once (before the save finishes), so the next edit builds on
@@ -51,12 +58,15 @@ export function createStore(db: Db | null) {
   // A later snapshot replaces them; a failed save puts the previous value back.
   type Doc = Record<string, unknown>;
   const localDoc = (name: CollectionName, id: string): Doc | null | undefined => {
+    if (name === "meta") return state.lang ? { lang: state.lang } : null;
     if (name === "recipes") return state.recipes.find((r) => r.id === id) as unknown as Doc | undefined ?? null;
     if (name === "lists") return state.lists.find((l) => l.id === id) as unknown as Doc | undefined ?? null;
     return state.days.find((d) => d.date === id) as unknown as Doc | undefined ?? null;
   };
   const putLocal = (name: CollectionName, id: string, doc: Doc | null) => {
-    if (name === "recipes") {
+    if (name === "meta") {
+      set({ lang: asLang(doc?.lang) });
+    } else if (name === "recipes") {
       const rest = state.recipes.filter((r) => r.id !== id);
       set({ recipes: doc ? [...rest, toRecipe(id, doc)] : rest });
     } else if (name === "lists") {
@@ -86,7 +96,7 @@ export function createStore(db: Db | null) {
         return true;
       } catch (e) {
         putLocal(name, id, before ?? null);
-        set({ error: `Couldn't save that: ${(e as { message?: string })?.message ?? "unknown error"}` });
+        set({ error: (e as { message?: string })?.message ?? "unknown error" });
         return false;
       }
     };
@@ -139,6 +149,9 @@ export function createStore(db: Db | null) {
         return data;
       }),
     deleteList: (id: string) => write("lists", id, () => null),
+
+    /** Remembers the language in the db so every device agrees. */
+    setLang: (lang: Lang) => write("meta", "settings", () => ({ lang })),
 
     async removeExamples() {
       for (const r of state.recipes.filter((x) => x.tags.includes(EXAMPLE_TAG))) await store.deleteRecipe(r.id);

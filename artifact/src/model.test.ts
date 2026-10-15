@@ -84,17 +84,50 @@ describe("generateList", () => {
     expect(r.ok && r.list.items.find((i) => i.name === "spaghetti")?.quantity).toBe(2); // two bakes of 1 kg
   });
 
-  it("explains why it cannot generate", () => {
-    const err = (i: typeof input, d = days) => { const r = generateList(i, [pasta, bake], d); return r.ok ? "" : r.error; };
-    expect(err({ ...input, start: "2030-01-01", end: "2030-01-07" })).toMatch(/No meals are planned/);
-    expect(err({ ...input, end: "2026-10-01" })).toMatch(/on or after/);
-    expect(err({ ...input, start: "bad" })).toMatch(/Pick a start/);
-    expect(err({ ...input, start: "2026-01-01", end: "2026-12-31" })).toMatch(/at most 62/);
+  it("explains why it cannot generate (as message keys the UI translates)", () => {
+    const err = (i: typeof input, d = days) => { const r = generateList(i, [pasta, bake], d); return r.ok ? null : r.error; };
+    expect(err({ ...input, start: "2030-01-01", end: "2030-01-07" })).toEqual({ key: "errNoMeals" });
+    expect(err({ ...input, end: "2026-10-01" })).toEqual({ key: "errEndBefore" });
+    expect(err({ ...input, start: "bad" })).toEqual({ key: "errPickDates" });
+    expect(err({ ...input, start: "2026-01-01", end: "2026-12-31" })).toEqual({ key: "errRangeLong", params: { max: 62 } });
   });
 
   it("skips planned meals whose recipe no longer exists", () => {
     const r = generateList(input, [bake], [day("2026-10-12", e("1", "gone", 2), e("2", "bake", 2))]);
     expect(r.ok && r.list.items.map((i) => i.name)).toEqual(["spaghetti"]);
+    expect(r.ok && r.skipped).toEqual([]); // a deleted recipe is not a "dish without ingredients"
+    const onlyGone = generateList(input, [bake], [day("2026-10-12", e("1", "gone", 2))]);
+    expect(onlyGone.ok ? null : onlyGone.error).toEqual({ key: "errNoMeals" });
+  });
+
+  describe("dishes that have no ingredients yet", () => {
+    const empty1: Recipe = { id: "e1", title: "يخنة بازيلاء", servings: 4, tags: [], instructions: "", sourceUrl: null, ingredients: [] };
+    const empty2: Recipe = { ...empty1, id: "e2", title: "رز مع دجاج" };
+
+    it("are left off the list and named, once each, while the rest is built", () => {
+      const r = generateList(input, [bake, empty1], [day("2026-10-12", e("1", "e1", 4), e("2", "bake", 2)), day("2026-10-14", e("3", "e1", 4))]);
+      expect(r.ok && r.list.items.map((i) => i.name)).toEqual(["spaghetti"]);
+      expect(r.ok && r.skipped).toEqual(["يخنة بازيلاء"]);
+    });
+
+    it("cannot make a list when every planned dish is empty, and says which", () => {
+      const r = generateList(input, [empty1, empty2], [day("2026-10-12", e("1", "e1", 4), e("2", "e2", 4))]);
+      expect(r.ok ? null : r.error).toEqual({ key: "errOnlyEmptyDishes", params: { names: "يخنة بازيلاء · رز مع دجاج" } });
+    });
+  });
+
+  it("merges Arabic ingredients across dishes, whichever way rice is spelled", () => {
+    const rice1: Recipe = { id: "r1", title: "رز مع دجاج", servings: 4, tags: [], instructions: "", sourceUrl: null,
+      ingredients: [{ name: "أرز", quantity: 2, unit: "كوب" }, { name: "دجاج", quantity: 1, unit: "كيلو" }] };
+    const kofta: Recipe = { id: "r2", title: "كفتة مع بطاطس و ارز وطماطم", servings: 4, tags: [], instructions: "", sourceUrl: null,
+      ingredients: [{ name: "رز", quantity: 1, unit: "كوب" }, { name: "بطاطس", quantity: 500, unit: "جم" }, { name: "طماطم", quantity: 3, unit: "حبة" }] };
+    const r = generateList(input, [rice1, kofta], [day("2026-10-12", e("1", "r1", 4)), day("2026-10-14", e("2", "r2", 4))]);
+    expect(r.ok && r.list.items.map(({ name, quantity, unit, category }) => ({ name, quantity, unit, category }))).toEqual([
+      { name: "أرز", quantity: 3, unit: "cup", category: "Pantry" },
+      { name: "بطاطس", quantity: 500, unit: "g", category: "Produce" },
+      { name: "دجاج", quantity: 1, unit: "kg", category: "Meat & fish" },
+      { name: "طماطم", quantity: 3, unit: "", category: "Produce" },
+    ]);
   });
 
   it("falls back to a dated name when none is given", () => {
