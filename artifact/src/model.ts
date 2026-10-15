@@ -202,6 +202,9 @@ export function buildBuyList(picks: Pick[], recipes: Recipe[]): BuyList {
 
 // ---- shopping lists ------------------------------------------------------------------------
 
+/** The id of the shopping list that belongs to the week starting on this Monday (YYYY-MM-DD). */
+export const weekListId = (weekStart: string): string => `week-${weekStart}`;
+
 export const toggleItem = (list: ShoppingList, itemId: string, checked: boolean): ShoppingList => ({
   ...list,
   items: list.items.map((i) => (i.id === itemId ? { ...i, checked } : i)),

@@ -59,6 +59,12 @@ https://claude.ai/artifact/7Y6W3zydkv5T6bH1vcgyZ9 (readable only by its owner).
   *Open shopping list* and opens the what-to-buy sheet, on a wide screen the list sits beside the foods. Ingredients are added
   in a sheet (type a line, see the live preview, or tap quantity and unit chips); shopping lists show each ingredient's picture beside a big round tick, an
   "In the basket" group, price pills and a sticky Bought/Planned total.
+- Pilot: a floating compass button (drag it anywhere; the header's Pilot switch hides or shows it) opens a step-by-step
+  guide for four workflows: add a dish, plan the week, go shopping and track spending. It reads what you have done
+  (foods, picks, the week's list, ticks, prices, budget) and what is on screen, points a highlight at the exact control for
+  the current step, and moves on by itself when the step is done. Pilot only highlights and explains (the one thing it can
+  do is switch tabs); it never writes data. Rules and steps: `artifact/src/pilot.ts`; UI: `artifact/src/ui/Pilot.tsx`; the
+  controls it points at carry `data-pilot` attributes.
 - Arabic and English: a switch in the header (default Arabic, right-to-left; the choice is saved in the artifact `db`
   as `meta/settings`, so every device agrees). UI text lives in `artifact/src/i18n.ts` (a test keeps both tables in
   step). Stored data keeps English keys (`DINNER`, `Produce`, `kg`), so nothing depends on the language.

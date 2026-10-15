@@ -75,7 +75,7 @@ test("picking foods creates the week's shopping list at once and keeps it in ste
   await expect.poll(async () => (await stored(page, "lists")).length).toBe(1);
   const [list] = await stored(page, "lists");
   expect(list).toMatchObject({ name: "Shopping · Oct 12 – Oct 18, 2026", rangeStart: "2026-10-12", rangeEnd: "2026-10-18", shoppedOn: TODAY });
-  expect((await stored(page, "week"))[0].listId).toBe("week-2026-10-12");
+  await expect.poll(async () => (await stored(page, "week"))[0]?.listId).toBe("week-2026-10-12");
 
   await buy(page).getByRole("button", { name: "Open shopping list" }).click();
   await expect(page.getByRole("heading", { name: /^Shopping ·/ })).toBeVisible();

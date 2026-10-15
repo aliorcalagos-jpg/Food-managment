@@ -118,7 +118,7 @@ function RecipeList(props: {
         <h2 id="recipes-h" className="large-title">
           {t("recipesH")}
         </h2>
-        <button type="button" className="add-btn" aria-label={t("newRecipe")} onClick={props.onNew}>
+        <button type="button" className="add-btn" data-pilot="new-food" aria-label={t("newRecipe")} onClick={props.onNew}>
           <span aria-hidden="true">＋</span>
         </button>
       </div>
@@ -332,14 +332,14 @@ function RecipeForm({
             {t("cancel")}
           </button>
           <h2>{isNew ? t("newRecipe") : t("editRecipe")}</h2>
-          <button type="submit" className="bar-btn strong" disabled={saving}>
+          <button type="submit" className="bar-btn strong" data-pilot="save-food" disabled={saving}>
             {saving ? t("saving") : t("saveRecipe")}
           </button>
         </div>
 
         <div className="field">
           <label htmlFor="recipe-title">{t("fTitle")}</label>
-          <input id="recipe-title" dir="auto" maxLength={120} value={v.title} aria-invalid={!!errors.title} aria-describedby="recipe-title-err" onChange={(e) => setV({ ...v, title: e.target.value })} />
+          <input id="recipe-title" data-pilot="food-title" dir="auto" maxLength={120} value={v.title} aria-invalid={!!errors.title} aria-describedby="recipe-title-err" onChange={(e) => setV({ ...v, title: e.target.value })} />
           <FieldError id="recipe-title-err" msg={errors.title} />
         </div>
 
@@ -364,7 +364,7 @@ function RecipeForm({
                 const q = parseQuantity(r.quantity);
                 return (
                   <SwipeRow key={n} contentClass={q === null ? "ing-line bad" : "ing-line"} deleteLabel={t("delete")} onDelete={() => setV((cur) => ({ ...cur, rows: cur.rows.filter((_, i) => i !== n) }))}>
-                    <button type="button" className="ing-line-btn num" onClick={() => setSheet({ index: n })}>
+                    <button type="button" className="ing-line-btn num" data-pilot="ing-line" onClick={() => setSheet({ index: n })}>
                       <IngIcon name={r.name} />
                       {q === null ? (
                         <span className="ing-text">
@@ -386,7 +386,7 @@ function RecipeForm({
             </ul>
           )}
           <FieldError id="recipe-ings-err" msg={errors.ingredients} />
-          <button type="button" className="btn ghost add-ing block" onClick={() => setSheet({ index: null })}>
+          <button type="button" className="btn ghost add-ing block" data-pilot="add-ingredient" onClick={() => setSheet({ index: null })}>
             <span aria-hidden="true">＋ </span>
             {t("addIngredient")}
           </button>

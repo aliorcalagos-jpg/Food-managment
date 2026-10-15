@@ -63,7 +63,7 @@ function ListIndex({ store, lists, onOpen }: { store: Store; lists: ShoppingList
             const done = l.items.filter((i) => i.checked).length;
             return (
               <li key={l.id}>
-                <button type="button" className="list-card" onClick={() => onOpen(l.id)}>
+                <button type="button" className="list-card" data-pilot={l === sorted[0] ? "list-card" : undefined} onClick={() => onOpen(l.id)}>
                   <span className="list-card-top">
                     <bdi className="row-title">{l.name}</bdi>
                     <span className="muted num">{t("progress", { done, total: l.items.length })}</span>
@@ -114,6 +114,7 @@ function ListDetail({ store, list, onBack }: { store: Store; list: ShoppingList 
   const totals = listTotals(list);
   const update = (edit: (l: ShoppingList) => ShoppingList) => store.updateList(list.id, edit);
   const pending = list.items.filter((i) => !i.checked);
+  const pilotFirst = (pending[0] ?? list.items[0])?.id; // the row Pilot points at
   const basket = list.items.filter((i) => i.checked);
 
   function add(e: React.FormEvent) {
@@ -138,8 +139,8 @@ function ListDetail({ store, list, onBack }: { store: Store; list: ShoppingList 
       onDelete={() => void update((l) => removeItem(l, i.id))}
       onToggle={() => void update((l) => toggleItem(l, i.id, !i.checked))}
     >
-      <ItemCheck checked={i.checked} icon={catalogItemFor(i.name)?.look} label={<ItemLabel quantity={i.quantity} unit={i.unit} name={i.name} />} onChange={(next) => update((l) => toggleItem(l, i.id, next))} />
-      <PriceInput id={i.id} name={i.name} price={i.price} onCommit={(p) => void update((l) => setItemPrice(l, i.id, p))} />
+      <ItemCheck pilot={pilotFirst === i.id} checked={i.checked} icon={catalogItemFor(i.name)?.look} label={<ItemLabel quantity={i.quantity} unit={i.unit} name={i.name} />} onChange={(next) => update((l) => toggleItem(l, i.id, next))} />
+      <PriceInput id={i.id} name={i.name} price={i.price} pilot={pilotFirst === i.id} onCommit={(p) => void update((l) => setItemPrice(l, i.id, p))} />
       <button type="button" className="icon-btn row-remove" aria-label={t("removeItem", { name: i.name })} onClick={() => void update((l) => removeItem(l, i.id))}>
         ✕
       </button>
@@ -147,7 +148,7 @@ function ListDetail({ store, list, onBack }: { store: Store; list: ShoppingList 
   );
 
   return (
-    <section className="stack">
+    <section className="stack" data-pilot="list-detail">
       <button type="button" className="back" onClick={onBack}>
         <Arrow /> {t("backToLists")}
       </button>
@@ -227,7 +228,7 @@ function ListDetail({ store, list, onBack }: { store: Store; list: ShoppingList 
       </details>
 
       <div className="sticky-bar">
-        <div className="sticky-in">
+        <div className="sticky-in" data-pilot="trip-bar">
           <p className="trip-bar num" aria-live="polite">
             <strong>
               {t("boughtTotal")} <Money kobo={totals.spent} withOther />
@@ -253,10 +254,10 @@ function ListDetail({ store, list, onBack }: { store: Store; list: ShoppingList 
  * Flips at once and saves in the background. It shows the viewer's tap until the save settles,
  * then goes back to the stored value, so a failed save un-ticks the box instead of lying.
  */
-function ItemCheck({ checked, label, icon, onChange }: { checked: boolean; label: ReactNode; icon?: Look; onChange: (next: boolean) => Promise<unknown> }) {
+function ItemCheck({ checked, label, icon, pilot, onChange }: { checked: boolean; label: ReactNode; icon?: Look; pilot?: boolean; onChange: (next: boolean) => Promise<unknown> }) {
   const [pending, setPending] = useState<boolean | null>(null);
   return (
-    <label className="check">
+    <label className="check" data-pilot={pilot ? "tick" : undefined}>
       <input
         type="checkbox"
         checked={pending ?? checked}
@@ -275,7 +276,7 @@ function ItemCheck({ checked, label, icon, onChange }: { checked: boolean; label
  * What one shopping line cost, typed in the chosen currency (naira or dollars at the fixed rate) and
  * stored as whole naira kobo. Saved when you leave the box or press Enter; blank clears the price.
  */
-function PriceInput({ id, name, price, onCommit }: { id: string; name: string; price: number | null; onCommit: (kobo: number | null) => void }) {
+function PriceInput({ id, name, price, pilot, onCommit }: { id: string; name: string; price: number | null; pilot?: boolean; onCommit: (kobo: number | null) => void }) {
   const { t } = useI18n();
   const { currency, rate } = useMoney();
   const shown = price === null ? "" : editableAmount(price, currency, rate);
@@ -303,7 +304,7 @@ function PriceInput({ id, name, price, onCommit }: { id: string; name: string; p
   }
 
   return (
-    <span className="price">
+    <span className="price" data-pilot={pilot ? "price" : undefined}>
       <span className="price-symbol" aria-hidden="true">
         {currencySymbol(currency)}
       </span>

@@ -127,6 +127,7 @@ export function IngredientSheet({
         <label htmlFor="quick-add">{t("quickAddLabel")}</label>
         <textarea
           id="quick-add"
+          data-pilot="sheet-input"
           ref={input}
           dir="auto"
           rows={2}
@@ -193,7 +194,7 @@ export function IngredientSheet({
                 ))}
               </div>
             )}
-            <div className="tiles catalog-items" role="group" aria-label={typed ? t("catSearch") : t(GROUP_LABEL[group])}>
+            <div className="tiles catalog-items" data-pilot="catalog" role="group" aria-label={typed ? t("catSearch") : t(GROUP_LABEL[group])}>
               {shown.map((item) => (
                 <button key={`${item.group}:${item.en}`} type="button" className="tile" aria-pressed={f.name === catalogName(item, lang)} onClick={() => pick(item)}>
                   <FoodIcon look={item.look} size={44} />
@@ -208,7 +209,7 @@ export function IngredientSheet({
           </div>
           <div className="sheet-section">
             <h4>{t("quickQtyH")}</h4>
-            <div className="chip-row" role="group" aria-label={t("quickQtyH")}>
+            <div className="chip-row" data-pilot="qty-chips" role="group" aria-label={t("quickQtyH")}>
               {QUANTITY_CHIPS.map((q) => (
                 <button key={q} type="button" className="chip num" aria-pressed={f.quantity === q} onClick={() => set({ ...f, quantity: f.quantity === q ? "" : q, unit: f.unit || (f.quantity === q ? "" : usual) })}>
                   <bdi dir="ltr">{formatQuantity(parseQuantity(q)!)}</bdi>
@@ -247,10 +248,10 @@ export function IngredientSheet({
         </p>
       )}
       <div className="actions">
-        <button type="button" className="btn primary" disabled={!canAdd} onClick={add}>
+        <button type="button" className="btn primary" data-pilot="sheet-add" disabled={!canAdd} onClick={add}>
           {index !== null ? t("updateBtn") : t("quickAddBtn")}
         </button>
-        <button type="button" className="btn ghost" onClick={onClose}>
+        <button type="button" className="btn ghost" data-pilot="sheet-done" onClick={onClose}>
           {index !== null ? t("cancel") : t("done")}
         </button>
       </div>

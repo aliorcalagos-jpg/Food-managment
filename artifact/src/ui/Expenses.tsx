@@ -132,7 +132,7 @@ function HeroCard({
   const state = status.state;
 
   return (
-    <div className="card hero-card">
+    <div className="card hero-card" data-pilot="hero">
       <p className="muted">{t("spentOn", { range: weekLabel })}</p>
       <p className="hero num">
         <Money kobo={summary.spent} />
@@ -365,13 +365,13 @@ function SettingsForm({ store, settings }: { store: Store; settings: Settings })
 
   return (
     <details className="card settings" open={startOpen}>
-      <summary>
+      <summary data-pilot="settings-summary">
         <h3 style={{ display: "inline" }}>{t("settingsH")}</h3>
       </summary>
       <div className="stack">
         <div className="field">
           <span className="label">{t("fCurrency")}</span>
-          <div className="segmented" role="group" aria-label={t("fCurrency")}>
+          <div className="segmented" data-pilot="currency" role="group" aria-label={t("fCurrency")}>
             {(["NGN", "USD"] as const).map((c) => (
               <button key={c} type="button" className="chip" aria-pressed={currency === c} onClick={() => switchCurrency(c)}>
                 {c === "NGN" ? t("curNGN") : t("curUSD")}
@@ -385,7 +385,7 @@ function SettingsForm({ store, settings }: { store: Store; settings: Settings })
             <label htmlFor="set-budget">
               {t("fBudget")} ({currencySymbol(currency)})
             </label>
-            <input id="set-budget" inputMode="decimal" dir="ltr" placeholder={currency === "NGN" ? "50000" : "40"} value={budgetText} aria-describedby="set-budget-err" onChange={(e) => { setBudgetText(e.target.value); setEdited((x) => ({ ...x, budget: true })); }} />
+            <input id="set-budget" data-pilot="budget-input" inputMode="decimal" dir="ltr" placeholder={currency === "NGN" ? "50000" : "40"} value={budgetText} aria-describedby="set-budget-err" onChange={(e) => { setBudgetText(e.target.value); setEdited((x) => ({ ...x, budget: true })); }} />
             <FieldError id="set-budget-err" msg={errors.budget} />
           </div>
           <div className="field">

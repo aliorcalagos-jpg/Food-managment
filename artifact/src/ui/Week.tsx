@@ -45,7 +45,7 @@ export function Week({
 
   // The week's list builds itself as foods are chosen; this opens it.
   const openButton = (
-    <button type="button" className="btn primary" disabled={!list} onClick={() => list && onOpenList(list.id)}>
+    <button type="button" className="btn primary" data-pilot="open-list-btn" disabled={!list} onClick={() => list && onOpenList(list.id)}>
       {t("openShoppingList")}
     </button>
   );
@@ -89,13 +89,13 @@ export function Week({
             </Empty>
           ) : (
             <ul className="picks" aria-labelledby="foods-h">
-              {sorted.map((r) => {
+              {sorted.map((r, idx) => {
                 const servings = pickOf.get(r.id);
                 const on = servings !== undefined;
                 const bare = r.ingredients.length === 0;
                 return (
                   <li key={r.id} className={on ? "pick on" : "pick"}>
-                    <button type="button" className="pick-btn" aria-pressed={on} onClick={() => choose(r, on ? null : r.servings)}>
+                    <button type="button" className="pick-btn" data-pilot={idx === 0 ? "pick-card" : undefined} aria-pressed={on} onClick={() => choose(r, on ? null : r.servings)}>
                       <span className="pick-check" aria-hidden="true">
                         ✓
                       </span>
@@ -104,13 +104,13 @@ export function Week({
                     {bare && (
                       <div className="pick-note">
                         <span className="pill">{t("noIngredientsYet")}</span>
-                        <button type="button" className="link" onClick={() => onEditRecipe(r.id)}>
+                        <button type="button" className="link" data-pilot="add-ing-cta" onClick={() => onEditRecipe(r.id)}>
                           {t("addIngredientsCta")}
                         </button>
                       </div>
                     )}
                     {on && (
-                      <div className="pick-foot">
+                      <div className="pick-foot" data-pilot="stepper">
                         <Stepper
                           value={servings}
                           onChange={(n) => choose(r, n)}
@@ -132,7 +132,7 @@ export function Week({
         </div>
 
         {wide && (
-          <aside className="card buy" aria-labelledby="buy-h">
+          <aside className="card buy" data-pilot="buy-panel" aria-labelledby="buy-h">
             <div className="buy-head">
               <h3 id="buy-h">{t("buyH")}</h3>
               <span className="muted num" aria-live="polite">
@@ -150,7 +150,7 @@ export function Week({
         <>
           <div className="sticky-bar">
             <div className="sticky-in">
-              <button type="button" className="bar-summary" disabled={chosenCount === 0} onClick={() => setSheet(true)}>
+              <button type="button" className="bar-summary" data-pilot="buy-panel" disabled={chosenCount === 0} onClick={() => setSheet(true)}>
                 <strong>{chosenCount === 0 ? t("barNone") : chosenCount === 1 ? t("barFoodOne") : t("barFoodN", { n: chosenCount })}</strong>
                 <span aria-live="polite">
                   {buy.items.length === 1 ? t("buyCountOne") : t("buyCountN", { n: buy.items.length })}

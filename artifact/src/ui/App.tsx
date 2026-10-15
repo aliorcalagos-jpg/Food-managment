@@ -7,6 +7,7 @@ import { useStore, type Store } from "../store";
 import { Empty, Icon } from "./common";
 import { Expenses } from "./Expenses";
 import { Lists } from "./Lists";
+import { Pilot } from "./Pilot";
 import { Recipes } from "./Recipes";
 import { Week } from "./Week";
 
@@ -19,6 +20,7 @@ const TABS = [
 type Tab = (typeof TABS)[number]["id"];
 const TAB_KEY = "meal-planner:tab";
 const LANG_KEY = "meal-planner:lang";
+const PILOT_KEY = "meal-planner:pilot-on";
 
 // A remembered tab or language is only a convenience: storage can be blocked or empty.
 function readTab(): Tab {
@@ -29,6 +31,13 @@ function readTab(): Tab {
     /* storage unavailable */
   }
   return "week";
+}
+function readPilotOn(): boolean {
+  try {
+    return localStorage.getItem(PILOT_KEY) !== "off";
+  } catch {
+    return true;
+  }
 }
 function readLocalLang(): Lang | null {
   try {
@@ -43,6 +52,7 @@ export function App({ store }: { store: Store }) {
   const state = useStore(store);
   const [tab, setTab] = useState<Tab>(readTab);
   const [scrolled, setScrolled] = useState(false);
+  const [pilotOn, setPilotOn] = useState(readPilotOn);
   const [localLang, setLocalLang] = useState<Lang | null>(readLocalLang);
   // The saved choice (shared by every device) wins, then this device's, then the default.
   const lang: Lang = state.settings.lang ?? localLang ?? DEFAULT_LANG;
@@ -132,7 +142,23 @@ export function App({ store }: { store: Store }) {
               {t("switchTo")}
             </button>
             <h1 className="brand">{t("brand")}</h1>
-            <span />
+            <button
+              type="button"
+              className="lang-switch pilot-toggle"
+              aria-pressed={pilotOn}
+              aria-label={t("pilotShowHide")}
+              onClick={() => {
+                const next = !pilotOn;
+                setPilotOn(next);
+                try {
+                  localStorage.setItem(PILOT_KEY, next ? "on" : "off");
+                } catch {
+                  /* storage unavailable */
+                }
+              }}
+            >
+              {t("pilotName")}
+            </button>
           </div>
         </header>
 
@@ -158,10 +184,12 @@ export function App({ store }: { store: Store }) {
           {state.status === "ready" && tab === "lists" && <Lists key={open.key} store={store} lists={state.lists} initialListId={open.id} />}
         </main>
 
+        {state.status === "ready" && pilotOn && <Pilot state={state} tab={tab} go={choose} />}
+
         <nav className="bottom-nav" aria-label={t("sections")}>
           <div className="bottom-nav-in">
             {TABS.map((x) => (
-              <button key={x.id} type="button" className="nav-btn" aria-current={tab === x.id ? "page" : undefined} onClick={() => choose(x.id)}>
+              <button key={x.id} type="button" className="nav-btn" data-pilot={`nav-${x.id}`} aria-current={tab === x.id ? "page" : undefined} onClick={() => choose(x.id)}>
                 <span className="nav-ico">
                   <Icon name={x.icon} />
                 </span>

@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from "react";
 import { addDays, parseISODate, toISODate } from "../../lib/week";
 import {
-  buildBuyList, DEFAULT_SETTINGS, dropRecipeFromWeek, mergePlanIntoList, fromSettings, isEmptyWeek, newId, toList, toRecipe, toSettings, toWeekPlan,
+  buildBuyList, DEFAULT_SETTINGS, weekListId, dropRecipeFromWeek, mergePlanIntoList, fromSettings, isEmptyWeek, newId, toList, toRecipe, toSettings, toWeekPlan,
   type Recipe, type Settings, type ShoppingList, type WeekPlan,
 } from "./model";
 import type { Db, DocSnap } from "./runtime";
@@ -151,7 +151,6 @@ export function createStore(db: Db | null) {
     });
 
   /** The one shopping list of a week has a fixed id, so quick successive edits can never make two. */
-  const weekListId = (weekStart: string) => `week-${weekStart}`;
   async function syncWeekList(weekStart: string): Promise<void> {
     const id = weekListId(weekStart);
     await write("lists", id, () => {
