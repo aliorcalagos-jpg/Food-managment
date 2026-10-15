@@ -15,6 +15,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           <span className="font-semibold">{household.name}</span>
           <Link href="/recipes">Recipes</Link>
           <Link href="/planner">Planner</Link>
+          <Link href="/lists">Lists</Link>
           <Link href="/household">Household</Link>
         </nav>
         <form action={logout}>

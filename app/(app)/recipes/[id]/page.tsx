@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { deleteRecipeAction } from "@/app/actions/recipes";
-import { DeleteRecipeButton } from "@/components/delete-recipe-button";
+import { ConfirmButton } from "@/components/confirm-button";
 import { requireHousehold } from "@/lib/dal";
 import { formatQuantity } from "@/lib/quantity";
 import { getRecipe } from "@/lib/recipe-service";
@@ -22,7 +22,7 @@ export default async function RecipePage({ params }: PageProps<"/recipes/[id]">)
           <h1 className="text-2xl font-semibold">{recipe.title}</h1>
           <div className="flex shrink-0 items-center gap-4 text-sm">
             <Link href={`/recipes/${recipe.id}/edit`} className="underline">Edit</Link>
-            <DeleteRecipeButton action={deleteRecipeAction.bind(null, recipe.id)} />
+            <ConfirmButton action={deleteRecipeAction.bind(null, recipe.id)} label="Delete" message="Delete this recipe? It will also be removed from your meal plan. This can't be undone." />
           </div>
         </div>
         <p className="text-sm text-zinc-500">

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { MEAL_TYPES } from "./meals";
 import { parseQuantity } from "./quantity";
-import { parseISODate } from "./week";
+import { daysBetween, parseISODate } from "./week";
 
 export const signupSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(80),
@@ -130,4 +130,50 @@ export const addMealSchema = z.object({
 export const updateMealSchema = z.object({
   entryId: z.string().min(1).max(64),
   servings: z.coerce.number().int("Servings must be a whole number").min(1).max(100),
+});
+
+export const MAX_LIST_RANGE_DAYS = 62;
+
+export const generateListSchema = z
+  .object({
+    name: z
+      .string()
+      .trim()
+      .max(80)
+      .transform((v) => (v === "" ? undefined : v)),
+    start: isoDate,
+    end: isoDate,
+  })
+  .superRefine((v, ctx) => {
+    const start = parseISODate(v.start);
+    const end = parseISODate(v.end);
+    if (!start || !end) return;
+    if (end < start) ctx.addIssue({ code: "custom", path: ["end"], message: "End date must be on or after the start date" });
+    else if (daysBetween(start, end) + 1 > MAX_LIST_RANGE_DAYS)
+      ctx.addIssue({ code: "custom", path: ["end"], message: `Pick at most ${MAX_LIST_RANGE_DAYS} days` });
+  });
+
+export const blankListSchema = z.object({ name: z.string().trim().min(1, "Name is required").max(80) });
+
+export const addItemSchema = z.object({
+  listId: z.string().min(1).max(64),
+  name: z.string().trim().min(1, "Item name is required").max(120),
+  quantity: z
+    .string()
+    .trim()
+    .transform((v, ctx) => {
+      if (v === "") return 1;
+      const q = parseQuantity(v);
+      if (q === null || q > 100000) {
+        ctx.addIssue({ code: "custom", message: "Use a number like 2, 0.5 or 1/2" });
+        return z.NEVER;
+      }
+      return q;
+    }),
+  unit: z.string().trim().max(30),
+});
+
+export const toggleItemSchema = z.object({
+  itemId: z.string().min(1).max(64),
+  checked: z.enum(["true", "false"]).transform((v) => v === "true"),
 });

@@ -21,3 +21,19 @@ export async function cleanup(tag: string) {
   await pool.query(`delete from "User" where email like $1`, [`${tag}%`]);
   await pool.end();
 }
+
+export type Ing = [qty: string, unit: string, name: string];
+
+export async function addRecipe(page: Page, title: string, servings: string, ingredients: Ing[]) {
+  await page.goto("/recipes/new");
+  await page.getByLabel("Title", { exact: true }).fill(title);
+  await page.getByLabel("Servings", { exact: true }).fill(servings);
+  for (const [i, [qty, unit, name]] of ingredients.entries()) {
+    if (i > 0) await page.getByRole("button", { name: "+ Add ingredient" }).click();
+    await page.getByLabel(`Quantity ${i + 1}`, { exact: true }).fill(qty);
+    await page.getByLabel(`Unit ${i + 1}`, { exact: true }).fill(unit);
+    await page.getByLabel(`Ingredient ${i + 1}`, { exact: true }).fill(name);
+  }
+  await page.getByRole("button", { name: "Save recipe" }).click();
+  await expect(page.getByRole("heading", { name: title })).toBeVisible();
+}

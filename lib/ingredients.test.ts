@@ -61,4 +61,50 @@ describe("mergeIngredients", () => {
       { name: "basil", quantity: 1, unit: "can" },
     ]);
   });
+
+  it("shows names as written, never the singularised matching key", () => {
+    const names = mergeIngredients([
+      { name: "Hummus", quantity: 1, unit: "cup" },
+      { name: "Asparagus", quantity: 1, unit: "bunch" },
+      { name: "chocolate cookies", quantity: 6, unit: "" },
+    ]).map((i) => i.name);
+    expect(names).toEqual(["asparagus", "chocolate cookies", "hummus"]);
+  });
+
+  it("keeps the unit when every entry uses the same one", () => {
+    expect(
+      mergeIngredients([
+        { name: "milk", quantity: 2, unit: "cup" },
+        { name: "milk", quantity: 1, unit: "cups" },
+        { name: "olive oil", quantity: 3, unit: "tbsp" },
+      ]),
+    ).toEqual([
+      { name: "milk", quantity: 3, unit: "cup" },
+      { name: "olive oil", quantity: 3, unit: "tbsp" },
+    ]);
+  });
+
+  it("converts mixed units to the largest present unit that gives at least 1", () => {
+    expect(
+      mergeIngredients([
+        { name: "milk", quantity: 2, unit: "cup" },
+        { name: "milk", quantity: 4, unit: "tbsp" },
+      ]),
+    ).toEqual([{ name: "milk", quantity: 2.25, unit: "cup" }]);
+    // below 1 of the largest unit: fall back to the smaller one present
+    expect(
+      mergeIngredients([
+        { name: "salt", quantity: 1, unit: "tsp" },
+        { name: "salt", quantity: 0.25, unit: "cup" },
+      ]),
+    ).toEqual([{ name: "salt", quantity: 13, unit: "tsp" }]);
+  });
+
+  it("does not round away fractions", () => {
+    const [out] = mergeIngredients([
+      { name: "flour", quantity: 1 / 3, unit: "cup" },
+      { name: "flour", quantity: 1 / 3, unit: "cup" },
+    ]);
+    expect(out.quantity).toBeCloseTo(2 / 3, 5);
+  });
 });

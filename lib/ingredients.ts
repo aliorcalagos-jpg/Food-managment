@@ -7,16 +7,21 @@ export type Ingredient = {
 type UnitFamily = "mass" | "volume" | "count";
 
 // Factors convert to the base unit of each family: grams, millilitres, pieces.
+// Related units are derived from each other so conversions are exact
+// (16 tbsp is precisely 1 cup, 16 oz precisely 1 lb).
+const TSP_ML = 4.92892159375; // US teaspoon
+const LB_G = 453.59237;
+
 const UNITS: Record<string, { family: UnitFamily; factor: number }> = {
   g: { family: "mass", factor: 1 },
   kg: { family: "mass", factor: 1000 },
-  oz: { family: "mass", factor: 28.3495 },
-  lb: { family: "mass", factor: 453.592 },
+  oz: { family: "mass", factor: LB_G / 16 },
+  lb: { family: "mass", factor: LB_G },
   ml: { family: "volume", factor: 1 },
   l: { family: "volume", factor: 1000 },
-  tsp: { family: "volume", factor: 4.92892 },
-  tbsp: { family: "volume", factor: 14.7868 },
-  cup: { family: "volume", factor: 236.588 },
+  tsp: { family: "volume", factor: TSP_ML },
+  tbsp: { family: "volume", factor: TSP_ML * 3 },
+  cup: { family: "volume", factor: TSP_ML * 48 },
   "": { family: "count", factor: 1 },
 };
 
@@ -69,41 +74,55 @@ export function scaleIngredient(
   return { ...ing, quantity: (ing.quantity * plannedServings) / recipeServings };
 }
 
-function pickDisplayUnit(family: UnitFamily, base: number, original: string) {
-  if (family === "mass") return base >= 1000 ? { unit: "kg", qty: base / 1000 } : { unit: "g", qty: base };
-  if (family === "volume") return base >= 1000 ? { unit: "l", qty: base / 1000 } : { unit: "ml", qty: base };
-  return { unit: original, qty: base };
-}
+// Scrubs float noise (0.1 + 0.2) without destroying fractions like 1/3 that
+// formatQuantity wants to recognise.
+const round = (n: number) => Math.round(n * 1e6) / 1e6;
 
-const round = (n: number) => Math.round(n * 100) / 100;
+type Bucket = {
+  name: string; // first-seen spelling, used for display (never the singularised key)
+  family: string;
+  base: number; // total in the family's base unit
+  units: Map<string, number>; // total per unit as written
+};
+
+const displayName = (name: string) => name.trim().toLowerCase().replace(/\s+/g, " ");
 
 /**
  * Merge ingredients by name, summing quantities across compatible units.
- * Incompatible unit families for the same name stay as separate lines.
+ * - Names are matched loosely ("egg" = "Eggs") but shown as first written.
+ * - If every entry uses the same unit, that unit is kept as is (3 cups stays
+ *   3 cup, not 710 ml). Mixed units convert to the largest unit present in
+ *   which the total is at least 1 (2 cup + 4 tbsp -> 2.25 cup).
+ * - Incompatible families for one name (grams vs tablespoons) stay separate
+ *   lines, and unknown units ("bunch", "can") only merge with themselves.
  */
 export function mergeIngredients(items: Ingredient[]): Ingredient[] {
-  const buckets = new Map<string, { name: string; family: UnitFamily | string; base: number; unit: string }>();
+  const buckets = new Map<string, Bucket>();
 
   for (const item of items) {
     const unit = normalizeUnit(item.unit);
     const def = UNITS[unit];
-    const name = normalizeName(item.name);
-    // Unknown units (e.g. "bunch", "can") only merge with the same unit.
     const family = def ? def.family : `custom:${unit}`;
-    const key = `${name}|${family}`;
-    const base = item.quantity * (def?.factor ?? 1);
-    const existing = buckets.get(key);
-    if (existing) existing.base += base;
-    else buckets.set(key, { name, family, base, unit });
+    const key = `${normalizeName(item.name)}|${family}`;
+    let b = buckets.get(key);
+    if (!b) buckets.set(key, (b = { name: displayName(item.name), family, base: 0, units: new Map() }));
+    b.base += item.quantity * (def?.factor ?? 1);
+    b.units.set(unit, (b.units.get(unit) ?? 0) + item.quantity);
   }
 
   return [...buckets.values()]
-    .map(({ name, family, base, unit }) => {
-      if (family === "mass" || family === "volume" || family === "count") {
-        const { unit: u, qty } = pickDisplayUnit(family, base, unit);
-        return { name, quantity: round(qty), unit: u };
+    .map((b): Ingredient => {
+      if (b.family === "count" || b.family.startsWith("custom:")) {
+        const [unit] = b.units.keys();
+        return { name: b.name, quantity: round(b.base), unit };
       }
-      return { name, quantity: round(base), unit };
+      if (b.units.size === 1) {
+        const [[unit, qty]] = b.units;
+        return { name: b.name, quantity: round(qty), unit };
+      }
+      const present = [...b.units.keys()].sort((x, y) => UNITS[y].factor - UNITS[x].factor);
+      const unit = present.find((u) => b.base / UNITS[u].factor >= 1) ?? present[present.length - 1];
+      return { name: b.name, quantity: round(b.base / UNITS[unit].factor), unit };
     })
-    .sort((a, b) => a.name.localeCompare(b.name));
+    .sort((a, c) => a.name.localeCompare(c.name));
 }

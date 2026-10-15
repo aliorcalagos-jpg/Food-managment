@@ -41,3 +41,13 @@ export function formatWeekRange(start: Date): string {
   const end = addDays(start, 6);
   return `${start.toLocaleDateString("en-US", opts)} – ${end.toLocaleDateString("en-US", { ...opts, year: "numeric" })}`;
 }
+
+export function formatRange(start: Date, end: Date): string {
+  const opts = { month: "short", day: "numeric", timeZone: "UTC" } as const;
+  const sameYear = start.getUTCFullYear() === end.getUTCFullYear();
+  const s = start.toLocaleDateString("en-US", sameYear ? opts : { ...opts, year: "numeric" });
+  return `${s} – ${end.toLocaleDateString("en-US", { ...opts, year: "numeric" })}`;
+}
+
+export const MS_PER_DAY = 86_400_000;
+export const daysBetween = (a: Date, b: Date) => Math.round((b.getTime() - a.getTime()) / MS_PER_DAY);

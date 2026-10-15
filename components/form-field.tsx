@@ -13,20 +13,28 @@ export function Field({
   autoComplete?: string;
   defaultValue?: string;
 }) {
+  const errorId = `${name}-error`;
   return (
-    <label className="block text-sm font-medium">
-      {label}
-      <input
-        name={name}
-        type={type}
-        required
-        autoComplete={autoComplete}
-        defaultValue={defaultValue}
-        aria-invalid={error ? true : undefined}
-        className="mt-1 block w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-base text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-      />
-      {error && <span className="mt-1 block text-sm text-red-600">{error}</span>}
-    </label>
+    <div>
+      <label className="block text-sm font-medium">
+        {label}
+        <input
+          name={name}
+          type={type}
+          required
+          autoComplete={autoComplete}
+          defaultValue={defaultValue}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error ? errorId : undefined}
+          className="mt-1 block w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-base text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+        />
+      </label>
+      {error && (
+        <p id={errorId} className="mt-1 text-sm text-red-600">
+          {error}
+        </p>
+      )}
+    </div>
   );
 }
 
