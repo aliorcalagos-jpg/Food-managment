@@ -1,11 +1,12 @@
 import { useMemo, useRef, useState } from "react";
 import { normalizeArabic } from "../../../lib/arabic";
-import { CATALOG, catalogName, GROUPS, searchCatalog, type CatalogGroup, type CatalogItem, type CatalogUnit } from "../../../lib/catalog";
+import { CATALOG, catalogItemFor, catalogName, GROUPS, searchCatalog, type CatalogGroup, type CatalogItem, type CatalogUnit } from "../../../lib/catalog";
 import { parseIngredientLine, splitLines, type IngredientFields } from "../../../lib/ingredient-line";
 import { normalizeName } from "../../../lib/ingredients";
 import { formatQuantity, parseQuantity } from "../../../lib/quantity";
 import type { Lang } from "../i18n";
 import { useI18n } from "../i18n";
+import { FoodIcon } from "./FoodIcon";
 import { Sheet } from "./common";
 
 export type IngRow = { name: string; quantity: string; unit: string };
@@ -68,6 +69,7 @@ export function IngredientSheet({
   const snap = (name: string) => known.get(normalizeName(name)) ?? name;
   const valid = f.name.trim() !== "" && quantityOk(f.quantity);
   const multi = /\r?\n/.test(text.trim());
+  const previewItem = f.name.trim() ? catalogItemFor(snap(f.name.trim())) : undefined;
 
   const set = (next: IngredientFields) => {
     setF(next);
@@ -167,9 +169,12 @@ export function IngredientSheet({
             )}
             <span className={f.name.trim() ? "pv" : "pv missing"}>
               <small>{t("pvName")}</small>
-              <bdi>
-                <b>{f.name.trim() ? snap(f.name.trim()) : "—"}</b>
-              </bdi>
+              <span className="pv-name">
+                {previewItem && <FoodIcon look={previewItem.look} size={22} />}
+                <bdi>
+                  <b>{f.name.trim() ? snap(f.name.trim()) : "—"}</b>
+                </bdi>
+              </span>
             </span>
           </>
         )}
@@ -188,11 +193,14 @@ export function IngredientSheet({
                 ))}
               </div>
             )}
-            <div className="chips catalog-items" role="group" aria-label={typed ? t("catSearch") : t(GROUP_LABEL[group])}>
+            <div className="tiles catalog-items" role="group" aria-label={typed ? t("catSearch") : t(GROUP_LABEL[group])}>
               {shown.map((item) => (
-                <button key={`${item.group}:${item.en}`} type="button" className="chip" aria-pressed={f.name === catalogName(item, lang)} onClick={() => pick(item)}>
-                  <bdi>{catalogName(item, lang)}</bdi>
-                  {typed && <small className="sub"> · {t(GROUP_LABEL[item.group])}</small>}
+                <button key={`${item.group}:${item.en}`} type="button" className="tile" aria-pressed={f.name === catalogName(item, lang)} onClick={() => pick(item)}>
+                  <FoodIcon look={item.look} size={44} />
+                  <span className="tile-name">
+                    <bdi>{catalogName(item, lang)}</bdi>
+                    {typed && <small className="sub"> · {t(GROUP_LABEL[item.group])}</small>}
+                  </span>
                 </button>
               ))}
             </div>

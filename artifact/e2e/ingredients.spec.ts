@@ -199,7 +199,53 @@ for (const width of [320, 390]) {
     for (const g of ["خضار", "لحوم", "دجاج", "أسماك ومأكولات بحرية", "بقوليات وحبوب", "ألبان وبيض", "زيوت ودهون", "بهارات وصلصات"]) {
       await page.getByRole("group", { name: "اختر من القائمة" }).getByRole("button", { name: g, exact: true }).click();
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), g).toBe(true);
-      const small = await page.locator(".catalog-items .chip").evaluateAll((els) => els.filter((e) => e.getBoundingClientRect().height < 44).length);
+      const small = await page.locator(".catalog-items .tile").evaluateAll((els) => els.filter((e) => e.getBoundingClientRect().height < 44).length);
+      expect(small, g).toBe(0);
+    }
+  });
+}
+
+test("every option has a picture; the long vegetable and meat lists are there; pictures also show on the dish", async ({ page }) => {
+  await openArtifact(page, { today: TODAY, lang: "ar", tab: "week", seed });
+  await page.locator("li.pick", { hasText: "يخنة بازيلاء" }).getByRole("button", { name: "أضف المكوّنات" }).click();
+  const tiles = page.locator(".catalog-items .tile");
+  const groups = page.getByRole("group", { name: "اختر من القائمة" });
+
+  await expect.poll(() => tiles.count()).toBeGreaterThanOrEqual(85); // vegetables
+  expect(await page.locator(".catalog-items .tile svg.food-icon[aria-hidden='true']").count()).toBe(await tiles.count());
+  await expect(page.locator(".catalog-items").getByRole("button", { name: "فلفل رومي أخضر", exact: true })).toBeVisible();
+
+  await groups.getByRole("button", { name: "لحوم", exact: true }).click();
+  await expect.poll(() => tiles.count()).toBeGreaterThanOrEqual(40);
+  for (const cut of ["سيرلوين بقري", "ريب آي بقري", "ذيل بقري", "راك ضأن", "كلاوي بقري"]) await expect(page.locator(".catalog-items").getByRole("button", { name: cut, exact: true })).toBeVisible();
+  await groups.getByRole("button", { name: "دجاج", exact: true }).click();
+  await expect.poll(() => tiles.count()).toBeGreaterThanOrEqual(20);
+  await expect(page.locator(".catalog-items").getByRole("button", { name: "قلوب دجاج", exact: true })).toBeVisible();
+
+  // the picture also shows in the preview, and then on the dish's ingredient line and detail page
+  await page.locator(".catalog-items").getByRole("button", { name: "وراك دجاج", exact: true }).click();
+  await expect(page.locator(".preview .pv-name svg.food-icon")).toBeVisible();
+  await page.getByRole("group", { name: "الكمية" }).getByRole("button", { name: "500", exact: true }).click();
+  await page.getByLabel("اكتب مكوّنًا").press("Enter");
+  await page.getByLabel("اكتب مكوّنًا").fill("2 كوب فول سوداني"); // not in the list: no picture
+  await page.getByLabel("اكتب مكوّنًا").press("Enter");
+  await page.getByRole("button", { name: "تم", exact: true }).click();
+  await expect(page.locator(".ing-line").nth(0).locator("svg.food-icon")).toBeVisible();
+  await expect(page.locator(".ing-line").nth(1).locator("svg.food-icon")).toHaveCount(0);
+  await page.getByRole("button", { name: "حفظ الوصفة" }).click();
+  await expect(page.locator(".ing-row-detail").nth(0).locator("svg.food-icon")).toBeVisible();
+});
+
+for (const width of [320, 390]) {
+  test(`picture tiles fit a ${width}px phone: no sideways scroll, big enough to tap`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 700 });
+    await openArtifact(page, { today: TODAY, lang: "ar", tab: "recipes", seed });
+    await page.getByRole("button", { name: "طبق جديد" }).click();
+    await page.getByRole("button", { name: "إضافة مكوّن" }).click();
+    for (const g of ["خضار", "لحوم", "دجاج"]) {
+      await page.getByRole("group", { name: "اختر من القائمة" }).getByRole("button", { name: g, exact: true }).click();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), g).toBe(true);
+      const small = await page.locator(".catalog-items .tile").evaluateAll((els) => els.filter((e) => e.getBoundingClientRect().height < 44 || e.getBoundingClientRect().width < 60).length);
       expect(small, g).toBe(0);
     }
   });

@@ -87,7 +87,7 @@ https://claude.ai/artifact/7Y6W3zydkv5T6bH1vcgyZ9 (readable only by its owner).
   name, and a line without a number leaves the quantity empty (nothing is guessed). Enter in a row's name box starts the
   next row, and the name boxes suggest ingredient names already used in other foods (a quick-added name takes the existing
   spelling).
-- Ingredient list: the Add ingredient sheet has a ready list of 175 everyday ingredients in Arabic and English
+- Ingredient list: the Add ingredient sheet has a ready list of 245 everyday ingredients in Arabic and English, each with a small illustration (flat SVG drawings recoloured per ingredient, in `artifact/src/ui/FoodIcon.tsx`)
   (vegetables, meat, chicken, fish and seafood, legumes and grains, dairy and eggs, oils, spices and sauces), in
   `lib/catalog.ts` (add a row to extend it). Tap a group, tap an ingredient, tap a quantity; typing searches every group
   (ارز finds أرز). The usual unit is suggested but the quantity is always yours, and names not in the list still work.

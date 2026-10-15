@@ -8,6 +8,8 @@ import { useI18n } from "../i18n";
 import type { Recipe } from "../model";
 import { EXAMPLE_TAG, type Store } from "../store";
 import { Arrow, ConfirmAction, Empty, FieldError, ItemLabel, Stepper, SwipeRow } from "./common";
+import { catalogItemFor } from "../../../lib/catalog";
+import { FoodIcon } from "./FoodIcon";
 import { IngredientSheet, type IngRow } from "./IngredientSheet";
 
 type View = { kind: "list" } | { kind: "detail"; id: string } | { kind: "edit"; id?: string };
@@ -245,8 +247,11 @@ function RecipeDetail({
       ) : (
         <ul className="ingredients">
           {recipe.ingredients.map((i, n) => (
-            <li key={n} className="num">
-              <ItemLabel quantity={i.quantity} unit={i.unit} name={i.name} />
+            <li key={n} className="num ing-row-detail">
+              <IngIcon name={i.name} />
+              <span>
+                <ItemLabel quantity={i.quantity} unit={i.unit} name={i.name} />
+              </span>
             </li>
           ))}
         </ul>
@@ -261,6 +266,12 @@ function RecipeDetail({
       )}
     </article>
   );
+}
+
+/** The little picture for an ingredient that is in the ready list (nothing for one typed by hand). */
+function IngIcon({ name }: { name: string }) {
+  const item = catalogItemFor(name);
+  return item ? <FoodIcon look={item.look} size={30} /> : <span className="ing-icon-gap" aria-hidden="true" />;
 }
 
 function blankForm(): RecipeFormValues {
@@ -354,11 +365,12 @@ function RecipeForm({
                 return (
                   <SwipeRow key={n} contentClass={q === null ? "ing-line bad" : "ing-line"} deleteLabel={t("delete")} onDelete={() => setV((cur) => ({ ...cur, rows: cur.rows.filter((_, i) => i !== n) }))}>
                     <button type="button" className="ing-line-btn num" onClick={() => setSheet({ index: n })}>
+                      <IngIcon name={r.name} />
                       {q === null ? (
-                        <>
+                        <span className="ing-text">
                           <bdi>{r.name}</bdi>
                           <small>{t("needsQty")}</small>
-                        </>
+                        </span>
                       ) : (
                         <span>
                           <ItemLabel quantity={q} unit={r.unit} name={r.name} />

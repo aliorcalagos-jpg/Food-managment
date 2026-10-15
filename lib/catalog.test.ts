@@ -63,3 +63,21 @@ describe("searchCatalog", () => {
     expect(searchCatalog("a", 5)).toHaveLength(5);
   });
 });
+
+describe("pictures", () => {
+  it("gives every item a known shape and real colours", async () => {
+    const { SHAPES } = await import("./catalog");
+    const hex = /^#[0-9a-f]{6}$/i;
+    for (const i of CATALOG) {
+      expect(SHAPES as readonly string[], i.en).toContain(i.look.shape);
+      expect(i.look.color, i.en).toMatch(hex);
+      if (i.look.accent) expect(i.look.accent, i.en).toMatch(hex);
+    }
+  });
+  it("is a long list: many vegetables, and many cuts of meat and chicken", () => {
+    const n = (g: string) => CATALOG.filter((i) => i.group === g).length;
+    expect(n("vegetables")).toBeGreaterThanOrEqual(85);
+    expect(n("meat") + n("chicken")).toBeGreaterThanOrEqual(60);
+    expect(n("chicken")).toBeGreaterThanOrEqual(20);
+  });
+});

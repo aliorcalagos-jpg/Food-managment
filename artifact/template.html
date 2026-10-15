@@ -266,9 +266,20 @@ details.more > .stack { padding: 4px 16px 16px; }
 .pv b { font-size: 1.0625rem; font-weight: 600; }
 .pv.missing { background: var(--saffron-soft); color: var(--note-ink); }
 .pv.missing small { color: var(--note-ink); }
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(5.25rem, 1fr)); gap: 8px; }
+.tile { appearance: none; border: 0; background: var(--surface); color: var(--ink); font: inherit; border-radius: 12px; padding: 8px 4px 6px; min-height: 84px; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 4px; cursor: pointer; text-align: center; }
+.tile[aria-pressed="true"] { background: var(--accent-soft); box-shadow: inset 0 0 0 2px var(--accent); }
+.tile-name { font-size: .8125rem; line-height: 1.25; overflow-wrap: anywhere; }
+.tile .sub { display: block; color: var(--muted); font-size: .6875rem; }
+.food-icon { flex: none; filter: drop-shadow(0 0 .6px rgba(0, 0, 0, .45)); }
+.pv-name { display: inline-flex; align-items: center; gap: 6px; }
+.ing-icon-gap { width: 30px; height: 30px; flex: none; }
+.ing-line-btn { flex-direction: row; align-items: center; gap: 12px; }
+.ing-text { display: flex; flex-direction: column; }
+.ing-row-detail { display: flex; align-items: center; gap: 12px; }
 .chip.suggested { box-shadow: inset 0 0 0 2px var(--accent); }
 .chip .sub { font-size: .75rem; opacity: .7; }
-.catalog-items { max-height: 13.5rem; overflow-y: auto; overscroll-behavior: contain; padding-bottom: 2px; }
+.catalog-items { max-height: 20rem; overflow-y: auto; overscroll-behavior: contain; padding-bottom: 2px; }
 .sheet-section { display: flex; flex-direction: column; gap: 8px; }
 .added-count { font-size: .9375rem; color: var(--accent); font-weight: 600; }
 
