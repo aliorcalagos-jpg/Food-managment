@@ -1,18 +1,13 @@
 import "dotenv/config";
 import { expect, test, type Page } from "@playwright/test";
-import { Pool } from "pg";
+import { cleanup } from "./helpers";
 
 const tag = `e2e-${Date.now()}`;
 const emailA = `${tag}-a@example.com`;
 const emailB = `${tag}-b@example.com`;
 const password = "correct-horse-battery";
 
-test.afterAll(async () => {
-  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-  await pool.query(`delete from "Household" where name like $1`, [`${tag}%`]);
-  await pool.query(`delete from "User" where email like $1`, [`${tag}%`]);
-  await pool.end();
-});
+test.afterAll(() => cleanup(tag));
 
 async function signup(page: Page, name: string, email: string) {
   await page.goto("/signup");

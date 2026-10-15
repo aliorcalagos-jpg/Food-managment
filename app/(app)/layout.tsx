@@ -2,6 +2,10 @@ import Link from "next/link";
 import { logout } from "@/app/actions/auth";
 import { requireHousehold } from "@/lib/dal";
 
+// Session-dependent: blocks on the server instead of streaming a static shell (see
+// node_modules/next/dist/docs/01-app/02-guides/authentication-with-cache-components.md).
+export const instant = false;
+
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const { household } = await requireHousehold();
   return (

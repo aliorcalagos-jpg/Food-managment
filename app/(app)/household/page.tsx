@@ -2,6 +2,9 @@ import { regenerateInviteAction } from "@/app/actions/household";
 import { requireHousehold } from "@/lib/dal";
 import { listMembers } from "@/lib/household-service";
 
+// Reads the session: blocks on the server (see authentication-with-cache-components guide).
+export const instant = false;
+
 export default async function HouseholdPage() {
   const { household, householdId, role } = await requireHousehold();
   const members = await listMembers(householdId);
