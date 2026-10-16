@@ -277,6 +277,14 @@ details.more > .stack { padding: 4px 16px 16px; }
 .ing-line-btn { flex-direction: row; align-items: center; gap: 12px; }
 .ing-text { display: flex; flex-direction: column; }
 .ing-row-detail { display: flex; align-items: center; gap: 12px; }
+.sheet-section-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.often-items { max-height: 11rem; overflow-y: auto; }
+.tile-gap { width: 44px; height: 44px; }
+.pick-table { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; background: var(--surface); border-radius: var(--radius); overflow: hidden; }
+.pick-row { display: grid; grid-template-columns: minmax(0, 1fr) 4.25rem 6rem 44px; gap: 6px; align-items: center; padding: 6px 4px 6px 12px; padding-inline: 12px 4px; position: relative; }
+.pick-row + .pick-row::before { content: ""; position: absolute; top: 0; inset-inline: 12px 0; height: .5px; background: var(--line); }
+.pick-row-name { display: flex; align-items: center; gap: 8px; min-width: 0; overflow-wrap: anywhere; }
+.pick-qty, .pick-unit { min-height: 44px; padding-inline: 8px; background: var(--surface-2); }
 .chip.suggested { box-shadow: inset 0 0 0 2px var(--accent); }
 .chip .sub { font-size: .75rem; opacity: .7; }
 .catalog-items { max-height: 20rem; overflow-y: auto; overscroll-behavior: contain; padding-bottom: 2px; }
@@ -389,6 +397,8 @@ details.more > .stack { padding: 4px 16px 16px; }
 .pilot-toggle { justify-self: end; text-align: end; }
 .pilot-toggle[aria-pressed="false"] { color: var(--muted); text-decoration: line-through; }
 .pilot-fab { position: fixed; z-index: 42; inset-inline-end: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(var(--nav-h) + var(--safe-b) + 92px); width: 52px; height: 52px; border-radius: 999px; border: 0; background: var(--accent); color: var(--accent-ink); box-shadow: 0 4px 16px rgba(0, 0, 0, .28); display: grid; place-items: center; cursor: grab; touch-action: none; }
+/* with a sheet open the button waits in the dimmed strip at the top instead of covering the sheet */
+body:has(.sheet-overlay) .pilot-fab:not(.placed) { bottom: auto; top: calc(env(safe-area-inset-top, 0px) + 8px); }
 .pilot-fab.placed { inset-inline-end: auto; bottom: auto; }
 .pilot-fab svg.ico { width: 28px; height: 28px; }
 .pilot-dot { position: absolute; top: 2px; inset-inline-end: 2px; width: 12px; height: 12px; border-radius: 999px; background: var(--saffron); border: 2px solid var(--surface); }

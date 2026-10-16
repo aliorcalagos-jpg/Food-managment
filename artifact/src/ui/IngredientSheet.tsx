@@ -1,11 +1,12 @@
 import { useMemo, useRef, useState } from "react";
 import { normalizeArabic } from "../../../lib/arabic";
-import { CATALOG, catalogItemFor, catalogName, GROUPS, searchCatalog, type CatalogGroup, type CatalogItem, type CatalogUnit } from "../../../lib/catalog";
-import { parseIngredientLine, splitLines, type IngredientFields } from "../../../lib/ingredient-line";
+import { CATALOG, catalogItemFor, catalogName, GROUPS, searchCatalog, type CatalogGroup, type CatalogItem, type CatalogUnit, type Look } from "../../../lib/catalog";
+import { parseIngredientLine, splitIngredientText, type IngredientFields } from "../../../lib/ingredient-line";
 import { normalizeName } from "../../../lib/ingredients";
 import { formatQuantity, parseQuantity } from "../../../lib/quantity";
 import type { Lang } from "../i18n";
 import { useI18n } from "../i18n";
+import { memoryKey, withRows, type Memory } from "../memory";
 import { FoodIcon } from "./FoodIcon";
 import { Sheet } from "./common";
 
@@ -42,6 +43,7 @@ export function IngredientSheet({
   rows,
   index,
   knownNames,
+  memory,
   onAdd,
   onReplace,
   onClose,
@@ -50,6 +52,8 @@ export function IngredientSheet({
   /** Which row is being edited, or null to add new ones. */
   index: number | null;
   knownNames: string[];
+  /** What the person's own dishes say: the amount used last time per ingredient, and the ingredients used most. */
+  memory: Memory;
   onAdd: (rows: IngRow[]) => void;
   onReplace: (index: number, row: IngRow) => void;
   onClose: () => void;
@@ -64,11 +68,22 @@ export function IngredientSheet({
   const [group, setGroup] = useState<CatalogGroup>("vegetables");
   // the usual unit of the last picked item: offered on its chip, and applied when a quantity is tapped
   const [usual, setUsual] = useState("");
+  // pick several: tap many ingredients, then set every amount in one table
+  type Picked = { name: string; look?: Look; unit: string; quantity: string };
+  const [several, setSeveral] = useState(false);
+  const [picked, setPicked] = useState<Picked[]>([]);
+  const [table, setTable] = useState(false);
+  const mem = useMemo(() => withRows(memory, rows), [memory, rows]);
+  const lastTime = useMemo(() => {
+    const m = f.name.trim() ? mem.last.get(memoryKey(f.name.trim())) : undefined;
+    return m && !f.quantity ? m : undefined;
+  }, [mem, f.name, f.quantity]);
 
   const known = useMemo(() => new Map(knownNames.map((n) => [normalizeName(n), n])), [knownNames]);
   const snap = (name: string) => known.get(normalizeName(name)) ?? name;
   const valid = f.name.trim() !== "" && quantityOk(f.quantity);
-  const multi = /\r?\n/.test(text.trim());
+  const parts = useMemo(() => splitIngredientText(text), [text]);
+  const multi = parts.length > 1;
   const previewItem = f.name.trim() ? catalogItemFor(snap(f.name.trim())) : undefined;
 
   const set = (next: IngredientFields) => {
@@ -99,9 +114,41 @@ export function IngredientSheet({
     input.current?.focus();
   }
 
+  /** Picks an ingredient by name (from "Used often"); the amount used last time is then offered. */
+  function pickName(name: string) {
+    const item = catalogItemFor(name);
+    const usualUnit = item?.unit ? UNIT_CHIPS[lang][CANON_UNITS.indexOf(item.unit)] : "";
+    set({ ...f, name, unit: f.unit || (f.quantity ? usualUnit : "") });
+    setUsual(f.unit || !usualUnit ? "" : usualUnit);
+    input.current?.focus();
+  }
+
+  const pickedKey = (name: string) => memoryKey(name);
+  function toggleSeveral(name: string, look?: Look, unit = "") {
+    setPicked((cur) => (cur.some((p) => pickedKey(p.name) === pickedKey(name)) ? cur.filter((p) => pickedKey(p.name) !== pickedKey(name)) : [...cur, { name, look, unit, quantity: "" }]));
+  }
+  function openTable() {
+    setPicked((cur) =>
+      cur.map((p) => {
+        const m = mem.last.get(memoryKey(p.name));
+        return m && p.quantity === "" ? { ...p, quantity: m.quantity, unit: m.unit } : p; // never over what you typed
+      }),
+    );
+    setTable(true);
+  }
+  function addAll() {
+    const rowsOut = picked.map((p) => ({ name: snap(p.name), quantity: p.quantity, unit: p.unit }));
+    onAdd(rowsOut);
+    setAdded((n) => n + rowsOut.length);
+    setPicked([]);
+    setTable(false);
+    setSeveral(false);
+  }
+  const tableReady = picked.length > 0 && picked.every((p) => quantityOk(p.quantity));
+
   function add() {
     if (multi) {
-      const parsed = splitLines(text).map(parseIngredientLine).filter((r) => r.name || r.quantity || r.unit).map((r) => ({ ...r, name: snap(r.name) }));
+      const parsed = parts.map(parseIngredientLine).filter((r) => r.name || r.quantity || r.unit).map((r) => ({ ...r, name: snap(r.name) }));
       if (parsed.length === 0) return;
       onAdd(parsed);
       setAdded((n) => n + parsed.length);
@@ -122,7 +169,56 @@ export function IngredientSheet({
 
   const canAdd = multi || valid;
   return (
-    <Sheet title={index !== null ? t("editIngTitle") : t("addIngTitle")} onClose={onClose}>
+    <Sheet title={table ? t("tableH") : index !== null ? t("editIngTitle") : t("addIngTitle")} onClose={onClose}>
+      {table ? (
+        <>
+          <ul className="pick-table" aria-label={t("tableH")}>
+            {picked.map((p, i) => (
+              <li key={p.name} className="pick-row">
+                <span className="pick-row-name">
+                  {p.look ? <FoodIcon look={p.look} size={32} /> : <span className="ing-icon-gap" aria-hidden="true" />}
+                  <bdi>{p.name}</bdi>
+                </span>
+                <input
+                  className="pick-qty"
+                  dir="ltr"
+                  inputMode="decimal"
+                  placeholder="0"
+                  aria-label={t("qtyFor", { name: p.name })}
+                  aria-invalid={p.quantity !== "" && !quantityOk(p.quantity) ? true : undefined}
+                  value={p.quantity}
+                  onChange={(e) => setPicked((cur) => cur.map((x, n) => (n === i ? { ...x, quantity: e.target.value } : x)))}
+                />
+                <select
+                  className="pick-unit"
+                  aria-label={t("unitFor", { name: p.name })}
+                  value={p.unit}
+                  onChange={(e) => setPicked((cur) => cur.map((x, n) => (n === i ? { ...x, unit: e.target.value } : x)))}
+                >
+                  <option value="">{t("noUnit")}</option>
+                  {[...new Set([...UNIT_CHIPS[lang], ...(p.unit && !UNIT_CHIPS[lang].includes(p.unit) ? [p.unit] : [])])].map((u) => (
+                    <option key={u} value={u}>
+                      {u}
+                    </option>
+                  ))}
+                </select>
+                <button type="button" className="icon-btn" aria-label={t("removeFromPick", { name: p.name })} onClick={() => setPicked((cur) => cur.filter((_, n) => n !== i))}>
+                  ✕
+                </button>
+              </li>
+            ))}
+          </ul>
+          <div className="actions">
+            <button type="button" className="btn primary" disabled={!tableReady} onClick={addAll}>
+              {t("addAll", { n: picked.length })}
+            </button>
+            <button type="button" className="btn ghost" onClick={() => setTable(false)}>
+              {t("backToList")}
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
       <div className="field quick-input">
         <label htmlFor="quick-add">{t("quickAddLabel")}</label>
         <textarea
@@ -153,7 +249,7 @@ export function IngredientSheet({
 
       <div className="preview" aria-live="polite">
         {multi ? (
-          <span className="muted">{t("pvMany", { n: splitLines(text).length })}</span>
+          <span className="muted">{t("pvMany", { n: parts.length })}</span>
         ) : text.trim() === "" ? (
           <span className="muted">{t("quickAddHint")}</span>
         ) : (
@@ -183,8 +279,34 @@ export function IngredientSheet({
 
       {!multi && (
         <>
+          {!typed && mem.often.length > 0 && index === null && (
+            <div className="sheet-section">
+              <h4>{t("oftenH")}</h4>
+              <div className="tiles often-items" data-pilot="often" role="group" aria-label={t("oftenH")}>
+                {mem.often.map((name) => {
+                  const item = catalogItemFor(name);
+                  const on = several ? picked.some((p) => memoryKey(p.name) === memoryKey(name)) : f.name === name;
+                  return (
+                    <button key={name} type="button" className="tile" aria-pressed={on} onClick={() => (several ? toggleSeveral(name, item?.look, item?.unit ? UNIT_CHIPS[lang][CANON_UNITS.indexOf(item.unit)] : "") : pickName(name))}>
+                      {item ? <FoodIcon look={item.look} size={44} /> : <span className="ing-icon-gap tile-gap" aria-hidden="true" />}
+                      <span className="tile-name">
+                        <bdi>{name}</bdi>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           <div className="sheet-section">
-            <h4>{t("catalogH")}</h4>
+            <div className="sheet-section-head">
+              <h4>{t("catalogH")}</h4>
+              {index === null && (
+                <button type="button" className="chip" aria-pressed={several} onClick={() => { setSeveral((v) => !v); setPicked([]); }}>
+                  {t("pickSeveral")}
+                </button>
+              )}
+            </div>
             {!typed && (
               <div className="chip-row" role="group" aria-label={t("catalogH")}>
                 {GROUPS.map((g) => (
@@ -196,7 +318,7 @@ export function IngredientSheet({
             )}
             <div className="tiles catalog-items" data-pilot="catalog" role="group" aria-label={typed ? t("catSearch") : t(GROUP_LABEL[group])}>
               {shown.map((item) => (
-                <button key={`${item.group}:${item.en}`} type="button" className="tile" aria-pressed={f.name === catalogName(item, lang)} onClick={() => pick(item)}>
+                <button key={`${item.group}:${item.en}`} type="button" className="tile" aria-pressed={several ? picked.some((p) => memoryKey(p.name) === memoryKey(catalogName(item, lang))) : f.name === catalogName(item, lang)} onClick={() => (several ? toggleSeveral(catalogName(item, lang), item.look, item.unit ? UNIT_CHIPS[lang][CANON_UNITS.indexOf(item.unit)] : "") : pick(item))}>
                   <FoodIcon look={item.look} size={44} />
                   <span className="tile-name">
                     <bdi>{catalogName(item, lang)}</bdi>
@@ -206,7 +328,23 @@ export function IngredientSheet({
               ))}
             </div>
             {typed && found.length === 0 && <p className="muted hint">{t("catNoMatch")}</p>}
+            {several && (
+              <div className="actions">
+                <button type="button" className="btn primary" disabled={picked.length === 0} onClick={openTable}>
+                  {t("setQuantities", { n: picked.length })}
+                </button>
+              </div>
+            )}
           </div>
+          {!several && lastTime && (
+            <div className="sheet-section">
+              <button type="button" className="chip suggested" data-pilot="last-time" onClick={() => set({ ...f, quantity: lastTime.quantity, unit: lastTime.unit })}>
+                {t("lastTime", { text: [lastTime.quantity, lastTime.unit].filter(Boolean).join(" ") })}
+              </button>
+            </div>
+          )}
+          {!several && (
+          <>
           <div className="sheet-section">
             <h4>{t("quickQtyH")}</h4>
             <div className="chip-row" data-pilot="qty-chips" role="group" aria-label={t("quickQtyH")}>
@@ -239,6 +377,8 @@ export function IngredientSheet({
               </div>
             </div>
           )}
+          </>
+          )}
         </>
       )}
 
@@ -255,6 +395,8 @@ export function IngredientSheet({
           {index !== null ? t("cancel") : t("done")}
         </button>
       </div>
+        </>
+      )}
     </Sheet>
   );
 }

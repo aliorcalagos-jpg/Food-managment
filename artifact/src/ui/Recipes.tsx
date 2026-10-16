@@ -10,6 +10,7 @@ import { EXAMPLE_TAG, type Store } from "../store";
 import { Arrow, ConfirmAction, Empty, FieldError, ItemLabel, Stepper, SwipeRow } from "./common";
 import { catalogItemFor } from "../../../lib/catalog";
 import { FoodIcon } from "./FoodIcon";
+import { buildMemory, type Memory } from "../memory";
 import { IngredientSheet, type IngRow } from "./IngredientSheet";
 
 type View = { kind: "list" } | { kind: "detail"; id: string } | { kind: "edit"; id?: string };
@@ -36,6 +37,7 @@ export function Recipes({
     for (const r of recipes) for (const i of r.ingredients) if (i.name.trim()) byKey.set(normalizeName(i.name), byKey.get(normalizeName(i.name)) ?? i.name.trim());
     return [...byKey.values()];
   }, [recipes]);
+  const memory = useMemo(() => buildMemory(recipes), [recipes]);
   const [view, setView] = useState<View>(initialEditId ? { kind: "edit", id: initialEditId } : startNew ? { kind: "edit" } : { kind: "list" });
   const [q, setQ] = useState("");
   const [tag, setTag] = useState("");
@@ -48,6 +50,7 @@ export function Recipes({
         initial={existing ? toForm(existing) : blankForm()}
         isNew={!existing}
         knownNames={knownNames}
+        memory={memory}
         onCancel={() => setView(existing ? { kind: "detail", id: existing.id } : { kind: "list" })}
         onSave={async (recipe) => {
           const id = await store.saveRecipe({ ...recipe, id: existing?.id });
@@ -294,12 +297,14 @@ function RecipeForm({
   initial,
   isNew,
   knownNames,
+  memory,
   onSave,
   onCancel,
 }: {
   initial: RecipeFormValues;
   isNew: boolean;
   knownNames: string[];
+  memory: Memory;
   onSave: (r: Omit<Recipe, "id">) => Promise<void>;
   onCancel: () => void;
 }) {
@@ -418,6 +423,7 @@ function RecipeForm({
           rows={v.rows}
           index={sheet.index}
           knownNames={knownNames}
+          memory={memory}
           onAdd={(added: IngRow[]) => setV((cur) => ({ ...cur, rows: [...cur.rows, ...added] }))}
           onReplace={(i, row) => setV((cur) => ({ ...cur, rows: cur.rows.map((r, n) => (n === i ? row : r)) }))}
           onClose={() => setSheet(null)}

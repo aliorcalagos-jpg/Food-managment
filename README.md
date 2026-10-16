@@ -100,6 +100,11 @@ https://claude.ai/artifact/7Y6W3zydkv5T6bH1vcgyZ9 (readable only by its owner).
   `lib/catalog.ts` (add a row to extend it). Tap a group, tap an ingredient, tap a quantity; typing searches every group
   (ارز finds أرز). The usual unit is suggested but the quantity is always yours, and names not in the list still work.
   `categorize` uses the list first, so picked ingredients land in the right aisle.
+- Faster ingredient entry: *Pick several* lets you tap many ingredients and then set every amount in one table (prefilled
+  with what your own dishes used last time, never over what you typed; Add all is disabled until each has a quantity);
+  *Used often* shows your 12 most-used ingredients first; *Last time: 3* offers the amount you used before as one tap
+  (nothing is filled in for you); and several ingredients can be typed on one line (`٢ كوب رز و١ كيلو دجاج`, `2 cups rice and
+  3 tomatoes`). The memory comes from the saved dishes (`artifact/src/memory.ts`), so nothing extra is stored.
 - A food can be saved with just a name and given ingredients later; the buy panel names the chosen foods it left out
   because they have no ingredients yet, with a jump to add them. The Servings field means how many servings the entered
   quantities make (default 1, one person).

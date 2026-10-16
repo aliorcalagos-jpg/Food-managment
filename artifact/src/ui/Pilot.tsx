@@ -169,9 +169,11 @@ export function Pilot({ state, tab, go }: { state: State; tab: PilotTab; go: (ta
       return;
     }
     let raf = 0;
+    let missing = 0; // frames without the control: it may only be re-rendering, so the highlight waits a moment
     const tick = () => {
       const hit = findTarget(cur.targets);
       if (hit) {
+        missing = 0;
         const pad = 6;
         const next = { top: hit.rect.top - pad, left: hit.rect.left - pad, width: hit.rect.width + pad * 2, height: hit.rect.height + pad * 2 };
         setRing((p) => (p && Math.abs(p.top - next.top) < 0.5 && Math.abs(p.left - next.left) < 0.5 && Math.abs(p.width - next.width) < 0.5 && Math.abs(p.height - next.height) < 0.5 ? p : next));
@@ -181,7 +183,7 @@ export function Pilot({ state, tab, go }: { state: State; tab: PilotTab; go: (ta
           const off = hit.rect.top < 60 || hit.rect.bottom > window.innerHeight - 90;
           if (off) hit.el.scrollIntoView({ block: "center", behavior: "auto" });
         }
-      } else setRing((p) => (p ? null : p));
+      } else if (++missing > 20) setRing((p) => (p ? null : p));
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
@@ -190,8 +192,8 @@ export function Pilot({ state, tab, go }: { state: State; tab: PilotTab; go: (ta
 
   // The card goes wherever it does not sit on the control it is pointing at.
   useLayoutEffect(() => {
-    if (!open) return;
-    const h = cardRef.current?.offsetHeight ?? 240;
+    if (!open || !ring) return;
+    const h = cardRef.current?.offsetHeight || 240;
     const vh = window.innerHeight;
     const navH = document.querySelector<HTMLElement>(".bottom-nav")?.offsetHeight ?? 0;
     const bottom = { a: vh - navH - 8 - h, b: vh - navH - 8 };

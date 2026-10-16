@@ -250,3 +250,104 @@ for (const width of [320, 390]) {
     }
   });
 }
+
+const cooked: Seed = {
+  recipes: {
+    a: rec("Tomato rice", [{ name: "tomato", quantity: 4, unit: "" }, { name: "onion", quantity: 2, unit: "" }, { name: "rice", quantity: 1, unit: "cup" }]),
+    b: rec("Salad", [{ name: "tomato", quantity: 3, unit: "" }, { name: "cucumber", quantity: 2, unit: "" }]),
+  },
+};
+const openSheet = async (page: import("@playwright/test").Page) => {
+  await page.getByRole("button", { name: "New food" }).click();
+  await page.getByLabel("Title", { exact: true }).fill("Test dish");
+  await page.getByRole("button", { name: "Add ingredient" }).click();
+};
+
+test("several ingredients on one line become several rows", async ({ page }) => {
+  await openArtifact(page, { today: TODAY, lang: "ar", tab: "recipes", seed });
+  await page.getByRole("button", { name: "طبق جديد" }).click();
+  await page.getByRole("button", { name: "إضافة مكوّن" }).click();
+  const line = page.getByLabel("اكتب مكوّنًا");
+  await line.fill("٢ كوب رز و١ كيلو دجاج و٣ طماطم");
+  await expect(page.getByText("سيُضاف 3 أسطر")).toBeVisible();
+  await line.press("Enter");
+  await page.getByRole("button", { name: "تم", exact: true }).click();
+  await expect(page.locator(".ing-line")).toHaveCount(3);
+  await expect(page.locator(".ing-line").nth(0)).toContainText("رز");
+  await expect(page.locator(".ing-line").nth(1)).toContainText("دجاج");
+  await expect(page.locator(".ing-line").nth(2)).toContainText("طماطم");
+  // an ingredient name that merely contains و is not split
+  await page.getByRole("button", { name: "إضافة مكوّن" }).click();
+  await line.fill("1 ورق عنب");
+  await expect(page.getByText("سيُضاف")).toHaveCount(0);
+});
+
+test("used often shows your own most-used ingredients, and last time's amount is one tap away", async ({ page }) => {
+  await openArtifact(page, { today: TODAY, lang: "en", tab: "recipes", seed: cooked });
+  await openSheet(page);
+  const often = page.locator(".often-items");
+  await expect(often.getByRole("button")).toHaveText(["tomato", "onion", "rice", "cucumber"]); // by how many dishes use them
+  await often.getByRole("button", { name: "tomato", exact: true }).click();
+  await expect(page.getByLabel("Type an ingredient")).toHaveValue("tomato");
+  await expect(page.getByRole("button", { name: "Add", exact: true })).toBeDisabled(); // nothing is filled in for you
+  await page.getByRole("button", { name: "Last time: 3" }).click(); // the newest dish used 3
+  await expect(page.getByLabel("Type an ingredient")).toHaveValue("3 tomato");
+  await page.getByLabel("Type an ingredient").press("Enter");
+  // what you just entered counts as the newest amount right away
+  await often.getByRole("button", { name: "tomato", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Last time: 3" })).toBeVisible();
+  await page.getByLabel("Type an ingredient").fill("rice");
+  await expect(page.getByRole("button", { name: "Last time: 1 cup" })).toBeVisible();
+});
+
+test("pick several, set every amount in one table (prefilled from last time), add them all", async ({ page }) => {
+  await openArtifact(page, { today: TODAY, lang: "en", tab: "recipes", seed: cooked });
+  await openSheet(page);
+  await page.getByRole("button", { name: "Pick several" }).click();
+  await expect(page.getByRole("button", { name: /Set quantities/ })).toBeDisabled();
+  const tile = (name: string) => page.locator(".catalog-items, .often-items").getByRole("button", { name, exact: true }).first();
+  await tile("tomato").click();
+  await tile("onion").click();
+  await page.getByRole("group", { name: "Choose from the list" }).getByRole("button", { name: "Meat", exact: true }).click();
+  await page.locator(".catalog-items").getByRole("button", { name: "minced beef", exact: true }).click();
+  await expect(page.locator(".catalog-items").getByRole("button", { name: "minced beef", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("button", { name: "Set quantities (3)" }).click();
+
+  // known ingredients come with last time's amounts; the new one is empty and blocks Add all
+  await expect(page.getByLabel("Quantity of tomato")).toHaveValue("3");
+  await expect(page.getByLabel("Quantity of onion")).toHaveValue("2");
+  await expect(page.getByLabel("Quantity of minced beef")).toHaveValue("");
+  await expect(page.getByLabel("Unit of minced beef")).toHaveValue("g"); // the usual unit, never a quantity
+  await expect(page.getByRole("button", { name: "Add all (3)" })).toBeDisabled();
+  await page.getByLabel("Quantity of minced beef").fill("500");
+  await page.getByLabel("Quantity of tomato").fill("5");
+  await page.getByRole("button", { name: "Remove onion" }).click();
+  await expect(page.getByRole("button", { name: "Add all (2)" })).toBeEnabled();
+  await page.getByRole("button", { name: "Back to the list" }).click(); // picks are kept
+  await page.getByRole("button", { name: "Set quantities (2)" }).click();
+  await expect(page.getByLabel("Quantity of tomato")).toHaveValue("5");
+  await page.getByRole("button", { name: "Add all (2)" }).click();
+
+  await expect(page.getByText("2 ingredients added")).toBeVisible();
+  await page.getByRole("button", { name: "Done", exact: true }).click();
+  await page.getByRole("button", { name: "Save recipe" }).click();
+  await expect
+    .poll(async () => (await stored(page, "recipes")).find((r) => r.title === "Test dish")?.ingredients)
+    .toEqual([
+      { name: "tomato", quantity: 5, unit: "" },
+      { name: "minced beef", quantity: 500, unit: "g" },
+    ]);
+});
+
+test("the table fits a 320px phone and never scrolls sideways", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 640 });
+  await openArtifact(page, { today: TODAY, lang: "ar", tab: "recipes", seed: cooked });
+  await page.getByRole("button", { name: "طبق جديد" }).click();
+  await page.getByRole("button", { name: "إضافة مكوّن" }).click();
+  await page.getByRole("button", { name: "اختيار عدة مكوّنات" }).click();
+  for (const n of [0, 1, 2]) await page.locator(".catalog-items .tile").nth(n).click();
+  await page.getByRole("button", { name: /حدّد الكميات/ }).click();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  const small = await page.locator(".pick-row input, .pick-row select, .pick-row button").evaluateAll((els) => els.filter((e) => e.getBoundingClientRect().height < 44).length);
+  expect(small).toBe(0);
+});

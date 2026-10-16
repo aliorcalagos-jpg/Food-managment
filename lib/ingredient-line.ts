@@ -50,3 +50,14 @@ export function parseIngredientLine(line: string): IngredientFields {
 export function splitLines(text: string): string[] {
   return text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.replace(BULLET, "").trim() !== "");
 }
+
+// Where one ingredient ends and the next begins on the same line: a semicolon, or "and" / "و" / "+" right before the
+// next quantity ("٢ كوب رز و١ كيلو دجاج", "2 cups rice and 3 tomatoes"). Words like ورق عنب are never split because the
+// connector must be followed by a number.
+const NUMBER_AHEAD = "(?=[\\d٠-٩½⅓⅔¼¾⅛⅜⅝⅞])";
+const CONNECTOR = new RegExp(`\\s*[;؛]\\s*|\\s+(?:و|and|\\+)\\s*${NUMBER_AHEAD}|\\sو${NUMBER_AHEAD}`, "giu");
+
+/** One piece per ingredient: lines, and several ingredients written on one line. */
+export function splitIngredientText(text: string): string[] {
+  return splitLines(text).flatMap((line) => line.split(CONNECTOR).map((p) => p.trim()).filter(Boolean));
+}
