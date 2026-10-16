@@ -1,55 +1,44 @@
 <title>Meal Planner</title>
 <meta name="claude:viewport-fit-sides" content="cover">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Spectral:wght@400;500;600&display=swap">
 <style>
-/* iPhone system design: SF type, inset grouped lists, large titles, a frosted top bar and tab bar, bottom sheets
-   with a grabber, swipe rows, round tick circles. Colours are the iOS semantic ones in light and dark, with the
-   system green as the tint. Apple fonts come first; IBM Plex Sans Arabic only covers other platforms. */
+/* QuestUI: a fantasy RPG design system. One dark theme (never pure black or white): parchment text on layered
+   browns, gold for actions and highlights, deep red for danger, royal purple kept for rare things. Cinzel for
+   headings and labels, Spectral for body text; Arabic falls back to the device's serif Arabic fonts. */
 :root {
-  --bg: #f2f2f7;
-  --surface: #ffffff;
-  --surface-2: #eeeef0;
-  --ink: #000000;
-  --muted: #6c6c70;
-  --line: #d1d1d6;
-  --accent: #248a3d;
-  --accent-strong: #1a6b2e;
-  --accent-ink: #ffffff;
-  --accent-soft: #e1f2e5;
-  --saffron: #ff9f0a;
-  --saffron-soft: #fff1cf;
-  --danger: #d70015;
-  --danger-soft: #ffe5e3;
-  --warn: #c93400;
-  --bar-dim: #7fbf8f;
-  --note: #fff4d6;
-  --note-ink: #6b4a00;
-  --focus: #0a84ff;
-  --blur-bg: rgba(249, 249, 249, .82);
-  --scrim: rgba(0, 0, 0, .4);
-  --font-body: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Arabic", system-ui, "IBM Plex Sans Arabic", "Segoe UI", Roboto, sans-serif;
-  --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Arabic", system-ui, "IBM Plex Sans Arabic", "Segoe UI", Roboto, sans-serif;
-  --radius: 12px;
-  --radius-sm: 10px;
-  --nav-h: 49px;
+  --bg: #1a0f0a;
+  --surface: #2c1a10;
+  --surface-2: #3d2517;
+  --ink: #f5e6d3;
+  --muted: #bfa98a;
+  --line: #5c3d2e;
+  --accent: #ca8a04;
+  --accent-strong: #daa520;
+  --accent-ink: #1a0f0a;
+  --accent-soft: rgba(202, 138, 4, .15);
+  --saffron: #daa520;
+  --saffron-soft: rgba(202, 138, 4, .22);
+  --danger: #f87171;
+  --danger-soft: rgba(153, 27, 27, .3);
+  --warn: #daa520;
+  --bar-dim: #7a5a1f;
+  --note: rgba(202, 138, 4, .15);
+  --note-ink: #f2cf86;
+  --focus: #ca8a04;
+  --blur-bg: rgba(26, 15, 10, .94);
+  --scrim: rgba(10, 5, 2, .72);
+  --glow-sm: 0 1px 3px rgba(202, 138, 4, .15);
+  --glow: 0 2px 8px rgba(202, 138, 4, .2);
+  --glow-md: 0 4px 16px rgba(202, 138, 4, .25);
+  --glow-lg: 0 8px 32px rgba(202, 138, 4, .3);
+  --font-body: Spectral, "Noto Naskh Arabic", "Noto Serif", "Droid Serif", Georgia, serif;
+  --font-display: Cinzel, Spectral, "Noto Naskh Arabic", "Noto Serif", Georgia, serif;
+  --radius: 4px;
+  --radius-sm: 4px;
+  --nav-h: 56px;
   --safe-b: env(safe-area-inset-bottom, 0px);
   --gutter: max(16px, env(safe-area-inset-left, 0px));
   --gutter-end: max(16px, env(safe-area-inset-right, 0px));
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #000000; --surface: #1c1c1e; --surface-2: #2c2c2e; --ink: #ffffff; --muted: #a1a1a6; --line: #38383a;
-    --accent: #30d158; --accent-strong: #5ee07f; --accent-ink: #04210d; --accent-soft: #12301b;
-    --saffron: #ff9f0a; --saffron-soft: #3a2c08; --danger: #ff453a; --danger-soft: #3a1512; --warn: #ff9f0a; --bar-dim: #2f8a49;
-    --note: #3a2f0a; --note-ink: #ffd666; --focus: #64b5ff; --blur-bg: rgba(29, 29, 31, .82); --scrim: rgba(0, 0, 0, .6);
-    color-scheme: dark;
-  }
-}
-:root[data-theme="dark"] {
-  --bg: #000000; --surface: #1c1c1e; --surface-2: #2c2c2e; --ink: #ffffff; --muted: #a1a1a6; --line: #38383a;
-  --accent: #30d158; --accent-strong: #5ee07f; --accent-ink: #04210d; --accent-soft: #12301b;
-  --saffron: #ff9f0a; --saffron-soft: #3a2c08; --danger: #ff453a; --danger-soft: #3a1512; --warn: #ff9f0a; --bar-dim: #2f8a49;
-  --note: #3a2f0a; --note-ink: #ffd666; --focus: #64b5ff; --blur-bg: rgba(29, 29, 31, .82); --scrim: rgba(0, 0, 0, .6);
   color-scheme: dark;
 }
 
@@ -442,6 +431,94 @@ body:has(.sheet-overlay) .pilot-fab:not(.placed) { bottom: auto; top: calc(env(s
   .sheet { animation: rise .28s cubic-bezier(.2, .8, .2, 1); }
   @keyframes rise { from { transform: translateY(40px); opacity: .6; } to { transform: none; opacity: 1; } }
 }
+
+/* ---- QuestUI components: angular 4px corners, bordered layered surfaces, gold glow on what is active ---- */
+body { font-size: 16px; line-height: 1.7; }
+[dir="rtl"] { line-height: 1.75; }
+h1, h2, h3 { font-family: var(--font-display); letter-spacing: .01em; }
+h2 { font-size: 1.75rem; font-weight: 700; }
+h3 { font-weight: 600; }
+h4 { font-family: var(--font-display); font-size: .8125rem; letter-spacing: .04em; }
+.brand { font-family: var(--font-display); font-weight: 700; letter-spacing: .06em; color: var(--accent-strong); }
+.top, .modal-bar { border-bottom: 1px solid var(--line); }
+.top::after { display: none; }
+.bottom-nav, .sticky-bar { border-top: 1px solid var(--line); box-shadow: 0 -2px 12px rgba(0, 0, 0, .35); }
+.nav-btn { font-family: var(--font-display); letter-spacing: .03em; font-size: .6875rem; position: relative; }
+.nav-btn[aria-current="page"] { color: var(--accent-strong); text-shadow: 0 0 12px rgba(202, 138, 4, .6); }
+.nav-btn[aria-current="page"]::before { content: ""; position: absolute; top: 0; inset-inline: 22%; height: 2px; background: var(--accent); box-shadow: var(--glow-md); }
+
+.card, .group, .picks, .food-grid, .list-cards, .items, .ing-list, .rows, .ingredients, .pick-table, details.more { border: 1px solid var(--line); box-shadow: var(--glow-sm); }
+.card { padding: 20px 16px; }
+.hero-card, .buy .card, .pilot-card, .sheet { border-top: 2px solid var(--accent); }
+.group > li + li::before, .picks > li + li::before, .food-grid > li + li::before, .list-cards > li + li::before, .items > li + li::before, .ing-list > li + li::before, .rows > li + li::before, .ingredients > li + li::before, .pick-row + .pick-row::before { height: 1px; background: var(--surface-2); inset-inline: 0; }
+.section-title, .aisle-title { font-family: var(--font-display); font-size: .75rem; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+
+input, select, textarea { font-family: var(--font-body); font-size: 1rem; background: var(--surface); border: 1px solid var(--line); border-radius: 4px; box-shadow: none; }
+input:hover, select:hover, textarea:hover { border-color: var(--accent); }
+.field input, .field select, .field textarea, .add-item input, .inline-form input, .search input { box-shadow: none; }
+input:focus-visible, textarea:focus-visible, select:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(202, 138, 4, .25) !important; }
+input[type="search"] { background: var(--surface); border-radius: 4px; }
+[aria-invalid="true"] { border-color: #991b1b !important; box-shadow: 0 0 0 3px rgba(153, 27, 27, .25) !important; }
+.field > label, legend, .field > .label { font-size: .875rem; font-weight: 500; color: var(--ink); }
+.hint, .field-error { padding-inline: 0; }
+:focus-visible { outline: 2px solid var(--accent); }
+
+.btn { font-family: var(--font-display); font-weight: 600; font-size: .9375rem; letter-spacing: .06em; border-radius: 4px; border: 1px solid var(--accent); background: rgba(202, 138, 4, .08); color: var(--accent-strong); box-shadow: var(--glow-sm); min-height: 48px; }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent-strong); box-shadow: var(--glow); }
+.btn.primary:active, .btn.primary:hover { background: #b8780a; }
+.btn.ghost { background: transparent; border-color: transparent; color: var(--muted); box-shadow: none; }
+.btn.danger { background: #991b1b; color: var(--ink); border-color: #b91c1c; }
+.btn:disabled { opacity: .35; box-shadow: none; border-color: var(--line); }
+.link, .back, .modal-bar .bar-btn, .lang-switch, .week-now { color: var(--accent-strong); font-family: var(--font-display); letter-spacing: .03em; }
+.link.danger { color: var(--danger); }
+.add-btn { border-radius: 4px; border: 1px solid var(--accent-strong); box-shadow: var(--glow); }
+.icon-btn, .week-btn { border-radius: 4px; }
+.week-btn { border: 1px solid var(--line); }
+.sheet-close { border-radius: 4px; background: var(--surface-2); color: var(--ink); }
+
+.chip { font-family: var(--font-display); font-size: .75rem; letter-spacing: .08em; text-transform: uppercase; border-radius: 2px; background: var(--surface); color: var(--muted); border: 1px solid var(--line); }
+.chip[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); box-shadow: var(--glow); }
+.pill { border-radius: 2px; font-family: var(--font-display); font-size: .6875rem; letter-spacing: .08em; text-transform: uppercase; background: var(--saffron-soft); color: var(--accent-strong); }
+.segmented { border-radius: 4px; background: var(--surface); border: 1px solid var(--line); }
+.segmented .chip { border-color: transparent; border-radius: 2px; }
+.segmented .chip[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); box-shadow: var(--glow); }
+.banner { border: 1px solid rgba(202, 138, 4, .4); }
+.banner.error { border-color: #991b1b; color: var(--danger); }
+.stepper .icon-btn { background: var(--surface-2); border-radius: 0; border: 1px solid var(--line); }
+.stepper .icon-btn:first-child { border-start-start-radius: 4px; border-end-start-radius: 4px; border-inline-end: 0; }
+.stepper .icon-btn:last-of-type { border-start-end-radius: 4px; border-end-end-radius: 4px; }
+.tile { border: 1px solid var(--line); border-radius: 4px; }
+.tile[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); box-shadow: var(--glow-md); }
+.pv { border-radius: 4px; border: 1px solid rgba(202, 138, 4, .4); color: var(--accent-strong); }
+.pick-check, .check input[type="checkbox"] { border: 2px solid var(--line); border-radius: 2px; background: var(--surface); }
+.pick.on .pick-check, .check input[type="checkbox"]:checked { background: var(--accent); border-color: var(--accent); }
+.check input[type="checkbox"]:checked::after { color: var(--accent-ink); }
+.pick-check, .check input[type="checkbox"] { width: 24px; height: 24px; }
+.price { border-radius: 4px; border: 1px solid var(--line); background: var(--surface); }
+.progress, .meter { border-radius: 2px; background: var(--bg); border: 1px solid var(--line); }
+.progress-fill, .meter-fill { border-radius: 0; box-shadow: 0 0 10px rgba(202, 138, 4, .5); }
+.meter-fill.over { background: #991b1b; box-shadow: none; }
+.status.ok .status-icon { background: rgba(34, 197, 94, .15); color: #22c55e; }
+.hero-card .hero { font-family: var(--font-display); color: var(--accent-strong); text-shadow: 0 0 18px rgba(202, 138, 4, .35); }
+.swipe-act { color: var(--ink); }
+.swipe-lead { background: #166534; }
+.swipe-trail { background: #991b1b; }
+.sheet-overlay .sheet, .action-group { box-shadow: var(--glow-lg); }
+.sheet { border-radius: 6px 6px 0 0; border: 1px solid var(--line); border-bottom: 0; }
+@media (min-width: 700px) { .sheet { border-radius: 6px; border-bottom: 1px solid var(--line); } }
+.sheet-grab::before { border-radius: 2px; background: var(--line); }
+.action-group, .action-btn.cancel { border-radius: 6px; border: 1px solid var(--line); }
+.action-btn { font-family: var(--font-display); font-size: 1rem; letter-spacing: .05em; border-top: 1px solid var(--line); color: var(--accent-strong); }
+.action-btn.danger { color: var(--danger); }
+.pilot-fab { border-radius: 999px; border: 1px solid var(--accent-strong); box-shadow: var(--glow-lg); }
+.pilot-card, .pilot-callout { border-radius: 6px; border: 1px solid var(--line); box-shadow: var(--glow-lg); }
+.pilot-choice, .pilot-step { border-radius: 4px; border: 1px solid var(--line); }
+.pilot-ring { border-radius: 6px; box-shadow: 0 0 0 3px var(--accent), 0 0 24px 4px rgba(202, 138, 4, .6), 0 0 0 9999px rgba(0, 0, 0, .4); }
+.bar-fill, .col-bar { border-radius: 2px; }
+.col-bar.selected, .bar-fill { box-shadow: 0 0 10px rgba(202, 138, 4, .45); }
+.budget-line { border-top-color: var(--accent-strong); }
+.empty-title { font-family: var(--font-display); }
+.numbers th, .numbers td { border-bottom-color: var(--surface-2); }
 </style>
 <div id="root">
   <div class="app"><header class="top"><h1 class="brand">Meal Planner</h1></header><main class="main"><p class="muted">Loading your kitchen…</p></main></div>

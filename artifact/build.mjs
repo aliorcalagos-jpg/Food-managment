@@ -64,12 +64,19 @@ const size = (...parts) => (parts.reduce((n, p) => n + Buffer.byteLength(p), 0) 
   const js = await bundle(true);
   const vendor = (f) => readFileSync(resolve(here, "test/vendor", f), "utf8").replace(/<\/script/gi, "<\\/script");
   const scripts = [`<script>${vendor("react.production.min.js")}</script>`, `<script>${vendor("react-dom.production.min.js")}</script>`, `<script>${js}</script>`].join("\n");
+  // the fonts travel inside the page (latin subsets of Cinzel and Spectral; Arabic uses the phone's serif fonts)
+  const face = (family, weight, file) =>
+    `@font-face{font-family:${family};font-weight:${weight};font-style:normal;font-display:swap;src:url(data:font/woff2;base64,${readFileSync(resolve(here, "fonts", file)).toString("base64")}) format("woff2")}`;
+  const fonts = `<style>${[
+    ...[400, 600, 700].map((w) => face("Cinzel", w, `cinzel-latin-${w}-normal.woff2`)),
+    ...[400, 500, 600].map((w) => face("Spectral", w, `spectral-latin-${w}-normal.woff2`)),
+  ].join("")}</style>`;
   const fragment = template
-    .replace(/<link rel="stylesheet" href="https:\/\/fonts\.googleapis\.com[^>]*>\n?/, "")
+    .replace(/<link rel="stylesheet" href="https:\/\/fonts\.googleapis\.com[^>]*>\n?/, () => fonts)
     .replace(/<meta name="claude:viewport-fit-sides"[^>]*>\n?/, "")
     .replace("<!--SCRIPTS-->", () => scripts);
   const html = `<!doctype html>
-<html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><meta name="color-scheme" content="light dark"><style>:root{color-scheme:light;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style></head><body>
+<html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><meta name="color-scheme" content="dark"><style>:root{color-scheme:dark;background:#1a0f0a;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style></head><body>
 ${fragment}
 </body></html>
 `;

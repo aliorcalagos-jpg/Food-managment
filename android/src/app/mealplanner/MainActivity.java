@@ -25,14 +25,12 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         Window window = getWindow();
-        window.setStatusBarColor(Color.TRANSPARENT);
-        window.setNavigationBarColor(Color.TRANSPARENT);
-        window.getDecorView().setSystemUiVisibility(
-            View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-                | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
+        // The page sits between the system bars (no drawing under them), so nothing is covered on any phone.
+        window.setStatusBarColor(Color.parseColor("#1A0F0A"));
+        window.setNavigationBarColor(Color.parseColor("#1A0F0A"));
 
         web = new WebView(this);
+        web.setBackgroundColor(Color.parseColor("#1A0F0A"));
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true); // localStorage: where the app keeps its data
