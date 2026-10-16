@@ -1,7 +1,7 @@
 // Document shapes stored in the artifact's db, plus the pure functions that edit them.
 // Nothing here touches the db or the DOM, so it is all unit-testable.
 import type { Ingredient } from "../../lib/ingredients";
-import { buildListItems } from "../../lib/list-build";
+import { buildListItems, sourcesByItem, type Source } from "../../lib/list-build";
 import { DEFAULT_RATE, isCurrency, MAX_KOBO, type Currency } from "../../lib/money";
 import type { Lang } from "./i18n";
 
@@ -177,6 +177,8 @@ export type BuyList = {
   items: ListItem[];
   /** Chosen foods that have no ingredients yet, so they add nothing to the list. */
   skipped: string[];
+  /** Which chosen foods need each line and how much (keyed by `itemKey(name, unit)`); lines you added by hand have none. */
+  sources: Map<string, Source[]>;
 };
 
 /**
@@ -197,7 +199,8 @@ export function buildBuyList(picks: Pick[], recipes: Recipe[]): BuyList {
     price: null,
     fromPlan: true,
   }));
-  return { items, skipped };
+  const sources = sourcesByItem(chosen.filter((m) => m.recipe.ingredients.length > 0).map((m) => ({ ...m, title: m.recipe.title })));
+  return { items, skipped, sources };
 }
 
 // ---- shopping lists ------------------------------------------------------------------------

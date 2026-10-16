@@ -201,7 +201,7 @@ export function App({ store }: { store: Store }) {
             <Week store={store} recipes={state.recipes} weeks={state.weeks} lists={state.lists} onEditRecipe={editRecipe} onOpenList={openList} onNewFood={newFood} />
           )}
           {state.status === "ready" && tab === "recipes" && <Recipes key={edit.key} store={store} recipes={state.recipes} initialEditId={edit.id} startNew={edit.isNew} />}
-          {state.status === "ready" && tab === "lists" && <Lists key={open.key} store={store} lists={state.lists} initialListId={open.id} />}
+          {state.status === "ready" && tab === "lists" && <Lists key={open.key} store={store} lists={state.lists} recipes={state.recipes} weeks={state.weeks} initialListId={open.id} />}
         </main>
 
         {state.status === "ready" && pilotOn && <Pilot state={state} tab={tab} go={choose} />}

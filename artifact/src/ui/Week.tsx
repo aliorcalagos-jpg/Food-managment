@@ -5,7 +5,7 @@ import { aisleLabel, useI18n } from "../i18n";
 import { buildBuyList, setPick, type BuyList, type Recipe, type ShoppingList, type WeekPlan } from "../model";
 import type { Store } from "../store";
 import { todayISO } from "../today";
-import { Arrow, Empty, ItemLabel, Sheet, Stepper, useWide } from "./common";
+import { AisleSummary, Arrow, Empty, ItemLabel, NeededFor, Sheet, Stepper, sourcesLookup, useWide } from "./common";
 
 export function Week({
   store,
@@ -175,6 +175,7 @@ export function Week({
 
 function BuyBody({ buy, chosen }: { buy: BuyList; chosen: number }) {
   const { t, lang } = useI18n();
+  const sourcesOf = sourcesLookup(buy.sources);
   return (
     <>
       {buy.skipped.length > 0 && (
@@ -188,10 +189,12 @@ function BuyBody({ buy, chosen }: { buy: BuyList; chosen: number }) {
         groupItems(buy.items).map((g) => (
           <section key={g.category} aria-label={aisleLabel(lang, g.category)} className="aisle">
             <h4 className="aisle-title">{aisleLabel(lang, g.category)}</h4>
+            <AisleSummary category={g.category} items={g.items} sourcesOf={sourcesOf} />
             <ul className="rows">
               {g.items.map((i) => (
                 <li key={i.id} className="buy-item num">
                   <ItemLabel quantity={i.quantity} unit={i.unit} name={i.name} />
+                  <NeededFor sources={sourcesOf(i)} />
                 </li>
               ))}
             </ul>

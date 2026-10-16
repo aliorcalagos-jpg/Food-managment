@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { itemKey, aisleSummary, type Source } from "../../../lib/list-build";
+import { tidyAmount } from "../../../lib/ingredients";
 import { formatMoney } from "../../../lib/money";
 import { formatQuantity } from "../../../lib/quantity";
 import { useMoney } from "../money-context";
@@ -89,11 +91,61 @@ export function Arrow({ forward = false }: { forward?: boolean }) {
  */
 export function ItemLabel({ quantity, unit, name }: { quantity: number; unit: string; name: string }) {
   const { lang } = useI18n();
+  const shown = tidyAmount(quantity, unit); // 1500 g reads 1.5 kg
   return (
     <>
-      <bdi dir="ltr">{formatQuantity(quantity)}</bdi>
-      {unit ? <> {unitLabel(lang, unit)}</> : null} <bdi>{name}</bdi>
+      <bdi dir="ltr">{formatQuantity(shown.quantity)}</bdi>
+      {shown.unit ? <> {unitLabel(lang, shown.unit)}</> : null} <bdi>{name}</bdi>
     </>
+  );
+}
+
+/** "Needed for Kofta 1 kg · Chicken rice 0.5 kg": which foods need a line and how much each. One food shows just its name. */
+export function NeededFor({ sources }: { sources: Source[] }) {
+  const { t, lang } = useI18n();
+  if (sources.length === 0) return null;
+  return (
+    <span className="needed muted small">
+      {t("neededFor")}{" "}
+      {sources.map((s, n) => {
+        const a = tidyAmount(s.quantity, s.unit);
+        return (
+          <span key={s.title}>
+            {n > 0 && " · "}
+            <bdi>{s.title}</bdi>
+            {sources.length > 1 && (
+              <>
+                {" "}
+                <bdi dir="ltr">{formatQuantity(a.quantity)}</bdi>
+                {a.unit ? <> {unitLabel(lang, a.unit)}</> : null}
+              </>
+            )}
+          </span>
+        );
+      })}
+    </span>
+  );
+}
+
+/** Under an aisle's title: how many foods use it and, for meat and fish, how much to buy in total. */
+export function AisleSummary({ category, items, sourcesOf }: { category: string; items: { name: string; quantity: number; unit: string }[]; sourcesOf: (i: { name: string; unit: string }) => Source[] }) {
+  const { t, lang } = useI18n();
+  const sum = aisleSummary(items, sourcesOf);
+  if (sum.dishes === 0) return null;
+  const dishes = sum.dishes === 1 ? t("aisleDishOne") : sum.dishes === 2 ? t("aisleDishTwo") : t("aisleDishN", { n: sum.dishes });
+  const showWeight = category === "Meat & fish" && sum.grams !== null;
+  const w = showWeight ? tidyAmount(Math.round(sum.grams! * 10) / 10, "g") : null;
+  return (
+    <p className="aisle-sum num" data-aisle-summary={category}>
+      {dishes}
+      {w && (
+        <>
+          {" · "}
+          <strong>{t("aisleWeight", { w: `${formatQuantity(w.quantity)} ${unitLabel(lang, w.unit)}` })}</strong>
+          {sum.byCount > 0 && <> {t("aisleByCount", { n: sum.byCount })}</>}
+        </>
+      )}
+    </p>
   );
 }
 
@@ -365,3 +417,6 @@ export function SwipeRow({
     </li>
   );
 }
+
+/** Looks up the foods behind a line of a buy list (see `buildBuyList`). */
+export const sourcesLookup = (map: Map<string, Source[]>) => (i: { name: string; unit: string }): Source[] => map.get(itemKey(i.name, i.unit)) ?? [];

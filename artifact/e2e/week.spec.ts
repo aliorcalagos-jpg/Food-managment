@@ -143,7 +143,7 @@ test("a line you remove stays removed, and an empty week has no list", async ({ 
   await goTab(page, "Shopping");
   await page.getByRole("button", { name: /Shopping ·/ }).click();
   await expect(page.getByLabel("3 1/2 cup أرز")).toBeVisible(); // the list follows the foods (rice 4 -> 5 servings, plus kofta)...
-  await expect(page.locator("li.swipe", { hasText: "دجاج" })).toHaveCount(0); // ...but chicken stays off
+  await expect(page.getByRole("button", { name: "Remove دجاج" })).toHaveCount(0); // ...but chicken stays off
 
   // nothing picked and nothing bought: the list goes away
   await goTab(page, "This week");
@@ -196,4 +196,45 @@ test("a food with no ingredients says so and jumps to its form; deleting a food 
 test("with no foods saved it explains what to do", async ({ page }) => {
   await openArtifact(page, { today: TODAY, lang: "en", tab: "week" });
   await expect(page.getByText("Save a food first")).toBeVisible();
+});
+
+test("the buy list says which foods need each item and how much meat to buy in all", async ({ page }) => {
+  const meat = { ...planSeed, recipes: {
+    kofta: rec("Kofta", 2, [{ name: "lamb", quantity: 1, unit: "kg" }, { name: "onion", quantity: 2, unit: "" }]),
+    stew: rec("Stew", 4, [{ name: "lamb", quantity: 500, unit: "g" }, { name: "onion", quantity: 1, unit: "" }, { name: "chicken", quantity: 500, unit: "g" }]),
+    salad: rec("Salad", 2, [{ name: "tomato", quantity: 3, unit: "" }]),
+  } };
+  await openArtifact(page, { today: TODAY, lang: "en", tab: "week", seed: meat });
+  await food(page, "Kofta").click();
+  await food(page, "Stew").click();
+  const panel = buy(page);
+  // the meat total is in one place, and each line names its foods with their share
+  await expect(panel.locator('[data-aisle-summary="Meat & fish"]')).toHaveText("2 dishes · 2 kg in total");
+  await expect(panel.getByText("1 1/2 kg lamb")).toBeVisible(); // 1 kg + 500 g, shown as it is bought
+  await expect(panel.getByText("Needed for Kofta 1 kg · Stew 500 g")).toBeVisible();
+  await expect(panel.getByText("Needed for Stew", { exact: true })).toHaveCount(1); // chicken: one food, just its name
+  await expect(panel.locator('[data-aisle-summary="Produce"]')).toHaveText("2 dishes");
+
+  // changing servings changes the shares
+  await page.getByRole("button", { name: "More servings of Kofta" }).click();
+  await expect(panel.getByText("Needed for Kofta 1 1/2 kg · Stew 500 g")).toBeVisible();
+
+  // the week's list shows the same facts, and the row's name stays just the item
+  await goTab(page, "Shopping");
+  await page.getByRole("button", { name: /Shopping ·/ }).click();
+  await expect(page.getByLabel("2 kg lamb")).toBeVisible();
+  await expect(page.getByText("Needed for Kofta 1 1/2 kg · Stew 500 g")).toBeVisible();
+  await expect(page.locator('[data-aisle-summary="Meat & fish"]')).toContainText("2 dishes");
+});
+
+test("Arabic: the same in Arabic, with Arabic unit words", async ({ page }) => {
+  await openArtifact(page, { today: TODAY, lang: "ar", tab: "week", seed: { recipes: {
+    a: rec("كفتة", 2, [{ name: "لحم", quantity: 1, unit: "كيلو" }]),
+    b: rec("يخنة", 2, [{ name: "لحم", quantity: 500, unit: "جم" }]),
+  } } });
+  await food(page, "كفتة").click();
+  await food(page, "يخنة").click();
+  const panel = buy(page);
+  await expect(panel.locator('[data-aisle-summary="Meat & fish"]')).toHaveText("طبقان · المجموع 1 1/2 كيلو");
+  await expect(panel.getByText("مطلوب لـ كفتة 1 كيلو · يخنة 500 جم")).toBeVisible();
 });

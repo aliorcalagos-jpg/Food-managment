@@ -80,6 +80,26 @@ export function isUnitWord(word: string): boolean {
   return w !== "" && Object.hasOwn(UNITS, normalizeUnit(w));
 }
 
+/** The family a unit measures in ("mass", "volume", "count"), or `custom:<unit>` for one this app does not know. */
+export function unitFamily(unit: string): string {
+  const u = normalizeUnit(unit);
+  return UNITS[u]?.family ?? `custom:${u}`;
+}
+
+/** The weight in grams of an amount in a weight unit (kg, g, lb, oz, كيلو ...), or null for anything else. */
+export function massGrams(quantity: number, unit: string): number | null {
+  const def = UNITS[normalizeUnit(unit)];
+  return def?.family === "mass" ? quantity * def.factor : null;
+}
+
+/** An amount shown the way it is bought: 1500 g reads 1.5 kg and 2000 ml reads 2 l; smaller amounts stay. */
+export function tidyAmount(quantity: number, unit: string): { quantity: number; unit: string } {
+  const u = normalizeUnit(unit);
+  if (u === "g" && quantity >= 1000) return { quantity: round(quantity / 1000), unit: "kg" };
+  if (u === "ml" && quantity >= 1000) return { quantity: round(quantity / 1000), unit: "l" };
+  return { quantity, unit };
+}
+
 export function normalizeName(name: string): string {
   if (hasArabic(name)) return normalizeArabic(name);
   const n = name.trim().toLowerCase().replace(/\s+/g, " ");

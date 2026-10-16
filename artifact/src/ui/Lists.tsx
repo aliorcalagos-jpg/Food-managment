@@ -12,7 +12,8 @@ import { listTotals } from "../spending";
 import type { Store } from "../store";
 import { todayISO } from "../today";
 import { catalogItemFor, type Look } from "../../../lib/catalog";
-import { Arrow, ConfirmAction, Empty, FieldError, ItemLabel, Money, SwipeRow } from "./common";
+import { buildBuyList, type Recipe, type WeekPlan } from "../model";
+import { AisleSummary, Arrow, ConfirmAction, Empty, FieldError, ItemLabel, Money, NeededFor, SwipeRow, sourcesLookup } from "./common";
 import { FoodIcon } from "./FoodIcon";
 
 type View = { kind: "index" } | { kind: "detail"; id: string };
@@ -20,16 +21,21 @@ type View = { kind: "index" } | { kind: "detail"; id: string };
 export function Lists({
   store,
   lists,
+  recipes,
+  weeks,
   initialListId,
 }: {
   store: Store;
   lists: ShoppingList[];
+  /** With the weeks, they say which foods need each line of a week's list. */
+  recipes: Recipe[];
+  weeks: WeekPlan[];
   /** Open this list straight away (used when jumping here from the Expenses tab). */
   initialListId?: string | null;
 }) {
   const [view, setView] = useState<View>(initialListId ? { kind: "detail", id: initialListId } : { kind: "index" });
   if (view.kind === "detail") {
-    return <ListDetail store={store} list={lists.find((l) => l.id === view.id)} onBack={() => setView({ kind: "index" })} />;
+    return <ListDetail store={store} list={lists.find((l) => l.id === view.id)} recipes={recipes} weeks={weeks} onBack={() => setView({ kind: "index" })} />;
   }
   return <ListIndex store={store} lists={lists} onOpen={(id) => setView({ kind: "detail", id })} />;
 }
@@ -93,7 +99,7 @@ function ListIndex({ store, lists, onOpen }: { store: Store; lists: ShoppingList
   );
 }
 
-function ListDetail({ store, list, onBack }: { store: Store; list: ShoppingList | undefined; onBack: () => void }) {
+function ListDetail({ store, list, recipes, weeks, onBack }: { store: Store; list: ShoppingList | undefined; recipes: Recipe[]; weeks: WeekPlan[]; onBack: () => void }) {
   const { t, lang } = useI18n();
   const [line, setLine] = useState("");
   const [error, setError] = useState<Msg | null>(null);
@@ -116,6 +122,9 @@ function ListDetail({ store, list, onBack }: { store: Store; list: ShoppingList 
   const pending = list.items.filter((i) => !i.checked);
   const pilotFirst = (pending[0] ?? list.items[0])?.id; // the row Pilot points at
   const basket = list.items.filter((i) => i.checked);
+  // the week this list belongs to knows which foods need each line
+  const week = weeks.find((w) => w.listId === list.id);
+  const sourcesOf = sourcesLookup(week ? buildBuyList(week.picks, recipes).sources : new Map());
 
   function add(e: React.FormEvent) {
     e.preventDefault();
@@ -139,7 +148,7 @@ function ListDetail({ store, list, onBack }: { store: Store; list: ShoppingList 
       onDelete={() => void update((l) => removeItem(l, i.id))}
       onToggle={() => void update((l) => toggleItem(l, i.id, !i.checked))}
     >
-      <ItemCheck pilot={pilotFirst === i.id} checked={i.checked} icon={catalogItemFor(i.name)?.look} label={<ItemLabel quantity={i.quantity} unit={i.unit} name={i.name} />} onChange={(next) => update((l) => toggleItem(l, i.id, next))} />
+      <ItemCheck pilot={pilotFirst === i.id} checked={i.checked} icon={catalogItemFor(i.name)?.look} label={<ItemLabel quantity={i.quantity} unit={i.unit} name={i.name} />} note={i.fromPlan ? <NeededFor sources={sourcesOf(i)} /> : null} noteId={`need-${i.id}`} onChange={(next) => update((l) => toggleItem(l, i.id, next))} />
       <PriceInput id={i.id} name={i.name} price={i.price} pilot={pilotFirst === i.id} onCommit={(p) => void update((l) => setItemPrice(l, i.id, p))} />
       <button type="button" className="icon-btn row-remove" aria-label={t("removeItem", { name: i.name })} onClick={() => void update((l) => removeItem(l, i.id))}>
         ✕
@@ -179,6 +188,7 @@ function ListDetail({ store, list, onBack }: { store: Store; list: ShoppingList 
       {groupItems(pending).map((g) => (
         <section key={g.category} aria-label={aisleLabel(lang, g.category)} className="aisle">
           <h3 className="aisle-title">{aisleLabel(lang, g.category)}</h3>
+          {week && <AisleSummary category={g.category} items={g.items} sourcesOf={sourcesOf} />}
           <ul className="items">{g.items.map(row)}</ul>
         </section>
       ))}
@@ -254,12 +264,14 @@ function ListDetail({ store, list, onBack }: { store: Store; list: ShoppingList 
  * Flips at once and saves in the background. It shows the viewer's tap until the save settles,
  * then goes back to the stored value, so a failed save un-ticks the box instead of lying.
  */
-function ItemCheck({ checked, label, icon, pilot, onChange }: { checked: boolean; label: ReactNode; icon?: Look; pilot?: boolean; onChange: (next: boolean) => Promise<unknown> }) {
+function ItemCheck({ checked, label, note, noteId, icon, pilot, onChange }: { checked: boolean; label: ReactNode; note?: ReactNode; noteId?: string; icon?: Look; pilot?: boolean; onChange: (next: boolean) => Promise<unknown> }) {
   const [pending, setPending] = useState<boolean | null>(null);
   return (
     <label className="check" data-pilot={pilot ? "tick" : undefined}>
       <input
         type="checkbox"
+        aria-labelledby={note ? `${noteId}-name` : undefined}
+        aria-describedby={note ? noteId : undefined}
         checked={pending ?? checked}
         onChange={(e) => {
           setPending(e.target.checked);
@@ -267,7 +279,10 @@ function ItemCheck({ checked, label, icon, pilot, onChange }: { checked: boolean
         }}
       />
       {icon ? <FoodIcon look={icon} size={34} /> : <span className="ing-icon-gap" aria-hidden="true" />}
-      <span className={(pending ?? checked) ? "done num" : "num"}>{label}</span>
+      <span className="check-text">
+        <span id={note ? `${noteId}-name` : undefined} className={(pending ?? checked) ? "done num" : "num"}>{label}</span>
+        {note && <span id={noteId} className="num">{note}</span>}
+      </span>
     </label>
   );
 }

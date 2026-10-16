@@ -93,7 +93,7 @@ describe("buildBuyList", () => {
   });
 
   it("is empty for no picks and ignores foods that no longer exist", () => {
-    expect(buildBuyList([], [pasta])).toEqual({ items: [], skipped: [] });
+    expect(buildBuyList([], [pasta])).toEqual({ items: [], skipped: [], sources: new Map() });
     const r = buildBuyList([{ recipeId: "gone", servings: 2 }, { recipeId: "bake", servings: 2 }], [bake]);
     expect(r.items.map((i) => i.name)).toEqual(["spaghetti"]);
     expect(r.skipped).toEqual([]); // a deleted food is not a "food without ingredients"

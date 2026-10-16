@@ -1,5 +1,5 @@
 import { CATEGORIES, categorize, type Category } from "./categories";
-import { mergeIngredients, scaleIngredient, type Ingredient } from "./ingredients";
+import { massGrams, mergeIngredients, normalizeName, scaleIngredient, unitFamily, type Ingredient } from "./ingredients";
 
 export type PlannedMeal = {
   /** Servings planned for this meal. */
@@ -37,4 +37,44 @@ export function groupItems<T extends ViewItem>(items: T[]): { category: string; 
     category,
     items: groups.get(category)!.sort((a, b) => Number(a.checked) - Number(b.checked) || a.name.localeCompare(b.name)),
   }));
+}
+
+export type Source = { title: string; servings: number; quantity: number; unit: string };
+
+/** How a line of the buy list is matched to the foods that need it: same name, same kind of unit. */
+export const itemKey = (name: string, unit: string) => `${normalizeName(name)}|${unitFamily(unit)}`;
+
+/**
+ * Which foods need each line of the buy list, and how much of it each one needs (scaled to the servings planned).
+ * Keyed by `itemKey`. A food that lists the same ingredient twice counts once, with the amounts added up.
+ */
+export function sourcesByItem(meals: (PlannedMeal & { title: string })[]): Map<string, Source[]> {
+  const out = new Map<string, Source[]>();
+  for (const m of meals) {
+    for (const i of buildListItems([m])) {
+      const key = itemKey(i.name, i.unit);
+      out.set(key, [...(out.get(key) ?? []), { title: m.title, servings: m.servings, quantity: i.quantity, unit: i.unit }]);
+    }
+  }
+  return out;
+}
+
+/**
+ * What one aisle needs at a glance: how many foods use it, the total weight of the items sold by weight (meat, fish),
+ * and how many items have no weight (sold by count, so they are not in that total).
+ */
+export function aisleSummary(
+  items: { name: string; quantity: number; unit: string }[],
+  sourcesOf: (item: { name: string; unit: string }) => Source[],
+): { dishes: number; grams: number | null; byCount: number } {
+  const titles = new Set<string>();
+  let grams: number | null = null;
+  let byCount = 0;
+  for (const i of items) {
+    for (const s of sourcesOf(i)) titles.add(s.title);
+    const g = massGrams(i.quantity, i.unit);
+    if (g === null) byCount++;
+    else grams = (grams ?? 0) + g;
+  }
+  return { dishes: titles.size, grams, byCount };
 }
