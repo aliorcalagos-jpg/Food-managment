@@ -52,3 +52,7 @@ next-env.d.ts
 
 # built artifact page (regenerate with `npm run build:artifact`)
 /artifact/dist/
+
+# Android app: signing key and build output stay local
+/android/*.keystore
+/android/build/

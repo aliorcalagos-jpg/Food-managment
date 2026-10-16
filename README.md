@@ -145,3 +145,12 @@ framing / `<base>` / forms / plugins. A script-src CSP with nonces needs every p
 conflicts with the prerendered pages used here, so it is not enabled.
 
 Self-hosting: `npm ci && npx prisma migrate deploy && npm run build && npm start` behind an HTTPS proxy.
+
+## Android app (APK)
+
+`npm run build:apk` builds `android/build/meal-planner.apk`: the meal planner as an installable Android app (Android 5+).
+
+- **Own data, on the phone only.** It is a separate copy from the claude.ai artifact: recipes, weeks, lists and expenses are kept on the device, it needs no internet (the app asks for no permissions) and nothing is synced. Uninstalling the app deletes its data.
+- **Sideload, not Google Play.** It is signed with a key generated on the first build (`android/meal-planner.keystore`, git-ignored). Keep that file: an update must be signed with the same key to install over the old version. To install, allow "install unknown apps" for your file manager/browser, then open the APK.
+- How it works: `artifact/build.mjs` also writes `artifact/dist/standalone/index.html` (React inlined, data in `localStorage` through `artifact/src/localdb.ts`); a tiny `WebView` activity (`android/src`) serves it from the app's assets and sends the back button to `window.__back` so it closes sheets and forms before leaving.
+- Build tools (Debian/Ubuntu): `apt install aapt dalvik-exchange apksigner zipalign android-sdk-platform-23 default-jdk-headless`.

@@ -12,7 +12,8 @@
     "postinstall": "prisma generate",
     "test:e2e": "playwright test",
     "build:artifact": "node artifact/build.mjs",
-    "test:artifact": "npm run build:artifact && playwright test -c playwright.artifact.config.ts"
+    "test:artifact": "npm run build:artifact && playwright test -c playwright.artifact.config.ts",
+    "build:apk": "bash scripts/build-apk.sh"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.10.0",

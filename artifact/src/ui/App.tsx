@@ -114,6 +114,26 @@ export function App({ store }: { store: Store }) {
     setEdit((e) => ({ id, key: e.key + 1 }));
     choose("recipes");
   };
+  // The Android app asks this on the back button: close what is open and say so, or let the app exit.
+  useEffect(() => {
+    const w = window as unknown as { __back?: () => boolean };
+    const click = (sel: string) => {
+      const el = document.querySelector<HTMLElement>(sel);
+      el?.click();
+      return !!el;
+    };
+    w.__back = () =>
+      click('.action-overlay .action-btn.cancel') ||
+      click(".sheet-overlay .sheet-close") ||
+      click('[data-pilot-ui="card"] .sheet-close') ||
+      click(".modal-bar .bar-btn:not(.strong)") ||
+      click("button.back") ||
+      (tab !== "week" ? (choose("week"), true) : false);
+    return () => {
+      delete w.__back;
+    };
+  });
+
   const newFood = () => {
     setEdit((e) => ({ id: null, key: e.key + 1, isNew: true }));
     choose("recipes");
