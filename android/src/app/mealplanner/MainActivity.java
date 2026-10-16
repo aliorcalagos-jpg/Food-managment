@@ -1,6 +1,12 @@
 package app.mealplanner;
 
 import android.app.Activity;
+import android.content.Intent;
+import android.view.HapticFeedbackConstants;
+import android.webkit.JavascriptInterface;
+import org.json.JSONObject;
+import java.io.ByteArrayOutputStream;
+import java.io.OutputStream;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
@@ -19,7 +25,76 @@ import java.io.InputStream;
 /** Shows the bundled web app full screen. Everything is served from assets/, nothing leaves the phone. */
 public class MainActivity extends Activity {
     private static final String ORIGIN = "https://app.local";
+    private static final int REQ_SAVE = 1, REQ_PICK = 2;
+    private static final int MAX_IMPORT_BYTES = 8 * 1024 * 1024;
     private WebView web;
+    private String pendingSave;
+
+    /** What the page may ask of the phone: the system file dialogs (no storage permission needed) and a small vibration. */
+    private class Bridge {
+        @JavascriptInterface
+        public void save(String name, String text) {
+            pendingSave = text;
+            final Intent i = new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("application/json").putExtra(Intent.EXTRA_TITLE, name);
+            runOnUiThread(new Runnable() { public void run() { startActivityForResult(i, REQ_SAVE); } });
+        }
+
+        @JavascriptInterface
+        public void pick() {
+            final Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*");
+            runOnUiThread(new Runnable() { public void run() { startActivityForResult(i, REQ_PICK); } });
+        }
+
+        @JavascriptInterface
+        public void haptic(final String kind) {
+            runOnUiThread(new Runnable() {
+                public void run() {
+                    web.performHapticFeedback("tick".equals(kind) ? HapticFeedbackConstants.KEYBOARD_TAP : HapticFeedbackConstants.LONG_PRESS);
+                }
+            });
+        }
+    }
+
+    private void js(String code) {
+        web.evaluateJavascript(code, null);
+    }
+
+    @Override
+    protected void onActivityResult(int request, int result, Intent data) {
+        super.onActivityResult(request, result, data);
+        boolean ok = result == RESULT_OK && data != null && data.getData() != null;
+        if (request == REQ_SAVE) {
+            boolean saved = false;
+            if (ok) {
+                try {
+                    OutputStream out = getContentResolver().openOutputStream(data.getData(), "wt");
+                    out.write(pendingSave.getBytes("UTF-8"));
+                    out.close();
+                    saved = true;
+                } catch (Exception e) {
+                    saved = false;
+                }
+            }
+            pendingSave = null;
+            js("window.__saved&&window.__saved(" + saved + ")");
+        } else if (request == REQ_PICK) {
+            String text = null;
+            if (ok) {
+                try {
+                    InputStream in = getContentResolver().openInputStream(data.getData());
+                    ByteArrayOutputStream buf = new ByteArrayOutputStream();
+                    byte[] chunk = new byte[8192];
+                    int n;
+                    while ((n = in.read(chunk)) > 0 && buf.size() <= MAX_IMPORT_BYTES) buf.write(chunk, 0, n);
+                    in.close();
+                    if (buf.size() <= MAX_IMPORT_BYTES) text = buf.toString("UTF-8");
+                } catch (Exception e) {
+                    text = null;
+                }
+            }
+            js("window.__picked&&window.__picked(" + (text == null ? "null" : JSONObject.quote(text)) + ")");
+        }
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -60,6 +135,7 @@ public class MainActivity extends Activity {
                 return true; // never navigate away from the app
             }
         });
+        web.addJavascriptInterface(new Bridge(), "AndroidBridge");
         setContentView(web);
         web.loadUrl(ORIGIN + "/index.html");
     }

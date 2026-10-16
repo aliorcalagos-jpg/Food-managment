@@ -239,6 +239,13 @@ export function createStore(db: Db | null) {
      */
     updateSettings: (patch: Partial<Settings>) => write("meta", "settings", () => fromSettings({ ...state.settings, ...patch })),
 
+    /** Applies the writes of an import (see `planImport`), one document at a time. Resolves false if any save failed. */
+    async applyImport(ops: { name: CollectionName; id: string; data: Doc | null }[]): Promise<boolean> {
+      let ok = true;
+      for (const op of ops) ok = (await write(op.name, op.id, () => op.data)) && ok;
+      return ok;
+    },
+
     async removeExamples() {
       for (const r of state.recipes.filter((x) => x.tags.includes(EXAMPLE_TAG))) await store.deleteRecipe(r.id);
     },
