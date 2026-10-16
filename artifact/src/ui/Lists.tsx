@@ -12,7 +12,9 @@ import { listTotals } from "../spending";
 import type { Store } from "../store";
 import { todayISO } from "../today";
 import { catalogItemFor, type Look } from "../../../lib/catalog";
-import { buildBuyList, type Recipe, type WeekPlan } from "../model";
+import { buildBuyList, restoreItem, type Recipe, type WeekPlan } from "../model";
+import { haptic } from "../native";
+import { Burst, useToast } from "./motion";
 import { AisleSummary, Arrow, ConfirmAction, Empty, FieldError, ItemLabel, Money, NeededFor, SwipeRow, sourcesLookup } from "./common";
 import { FoodIcon } from "./FoodIcon";
 
@@ -104,6 +106,8 @@ function ListDetail({ store, list, recipes, weeks, onBack }: { store: Store; lis
   const [line, setLine] = useState("");
   const [error, setError] = useState<Msg | null>(null);
   const [basketOpen, setBasketOpen] = useState(true);
+  const [burst, setBurst] = useState(false);
+  const toast = useToast();
 
   if (!list) {
     return (
@@ -139,18 +143,37 @@ function ListDetail({ store, list, recipes, weeks, onBack }: { store: Store; lis
     setLine("");
   }
 
+  const complete = total > 0 && done === total;
+  /** Ticks or un-ticks a line. Ticking the last one finishes the trip: sparks and a buzz. */
+  const toggle = (id: string, next: boolean) => {
+    if (next) markTicked(id);
+    if (next && total > 0 && done + 1 === total) {
+      setBurst(true);
+      haptic("success");
+    } else haptic("tick");
+    return update((l) => toggleItem(l, id, next));
+  };
+  /** Removes a line at once and offers to put it back, instead of asking first. */
+  const remove = (i: ShoppingList["items"][number]) => {
+    const at = list.items.findIndex((x) => x.id === i.id);
+    const dismissed = list.dismissed;
+    void update((l) => removeItem(l, i.id));
+    haptic("thud");
+    toast({ text: t("itemRemoved", { name: i.name }), action: { label: t("undo"), run: () => void update((l) => restoreItem(l, i, at, dismissed)) } });
+  };
+
   const row = (i: ShoppingList["items"][number]) => (
     <SwipeRow
       key={i.id}
       contentClass="item"
       deleteLabel={t("delete")}
       toggleLabel={i.checked ? t("undo") : t("done")}
-      onDelete={() => void update((l) => removeItem(l, i.id))}
-      onToggle={() => void update((l) => toggleItem(l, i.id, !i.checked))}
+      onDelete={() => remove(i)}
+      onToggle={() => void toggle(i.id, !i.checked)}
     >
-      <ItemCheck pilot={pilotFirst === i.id} checked={i.checked} icon={catalogItemFor(i.name)?.look} label={<ItemLabel quantity={i.quantity} unit={i.unit} name={i.name} />} note={i.fromPlan ? <NeededFor sources={sourcesOf(i)} /> : null} noteId={`need-${i.id}`} onChange={(next) => update((l) => toggleItem(l, i.id, next))} />
+      <ItemCheck id={i.id} pilot={pilotFirst === i.id} checked={i.checked} icon={catalogItemFor(i.name)?.look} label={<ItemLabel quantity={i.quantity} unit={i.unit} name={i.name} />} note={i.fromPlan ? <NeededFor sources={sourcesOf(i)} /> : null} noteId={`need-${i.id}`} onChange={(next) => toggle(i.id, next)} />
       <PriceInput id={i.id} name={i.name} price={i.price} pilot={pilotFirst === i.id} onCommit={(p) => void update((l) => setItemPrice(l, i.id, p))} />
-      <button type="button" className="icon-btn row-remove" aria-label={t("removeItem", { name: i.name })} onClick={() => void update((l) => removeItem(l, i.id))}>
+      <button type="button" className="icon-btn row-remove" aria-label={t("removeItem", { name: i.name })} onClick={() => remove(i)}>
         ✕
       </button>
     </SwipeRow>
@@ -170,6 +193,12 @@ function ListDetail({ store, list, recipes, weeks, onBack }: { store: Store; lis
         <div className="progress" aria-hidden="true">
           <div className="progress-fill" style={{ width: `${total ? (done / total) * 100 : 0}%` }} />
         </div>
+        {complete && (
+          <p className="complete num" role="status">
+            <strong>{t("shopComplete")}</strong> · <Money kobo={totals.spent} />
+            {burst && <Burst onDone={() => setBurst(false)} />}
+          </p>
+        )}
       </div>
 
       <form onSubmit={add} className="add-item" noValidate>
@@ -264,16 +293,24 @@ function ListDetail({ store, list, recipes, weeks, onBack }: { store: Store; lis
  * Flips at once and saves in the background. It shows the viewer's tap until the save settles,
  * then goes back to the stored value, so a failed save un-ticks the box instead of lying.
  */
-function ItemCheck({ checked, label, note, noteId, icon, pilot, onChange }: { checked: boolean; label: ReactNode; note?: ReactNode; noteId?: string; icon?: Look; pilot?: boolean; onChange: (next: boolean) => Promise<unknown> }) {
+const tickedAt = new Map<string, number>();
+const markTicked = (id: string) => void tickedAt.set(id, Date.now());
+/** A line you ticked a moment ago (it may have moved to the basket since, which mounts it afresh): it gets the tick stamp. */
+const justTicked = (id: string) => Date.now() - (tickedAt.get(id) ?? 0) < 1500;
+
+function ItemCheck({ id, checked, label, note, noteId, icon, pilot, onChange }: { id: string; checked: boolean; label: ReactNode; note?: ReactNode; noteId?: string; icon?: Look; pilot?: boolean; onChange: (next: boolean) => Promise<unknown> }) {
   const [pending, setPending] = useState<boolean | null>(null);
+  const [stamp] = useState(() => justTicked(id));
   return (
     <label className="check" data-pilot={pilot ? "tick" : undefined}>
       <input
         type="checkbox"
+        className={stamp ? "stamp" : undefined}
         aria-labelledby={note ? `${noteId}-name` : undefined}
         aria-describedby={note ? noteId : undefined}
         checked={pending ?? checked}
         onChange={(e) => {
+          if (e.target.checked) markTicked(id);
           setPending(e.target.checked);
           void onChange(e.target.checked).then(() => setPending(null));
         }}

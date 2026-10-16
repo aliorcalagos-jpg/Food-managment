@@ -1,3 +1,5 @@
+import { installFx } from "../fx";
+import { ToastProvider } from "./motion";
 import { useEffect, useMemo, useState } from "react";
 import { DEFAULT_LANG, I18nContext, makeI18n, type Lang } from "../i18n";
 import { MoneyContext } from "../money-context";
@@ -60,6 +62,7 @@ export function App({ store }: { store: Store }) {
   const { t, dir } = i18n;
 
   // the top bar gets its hairline once the large title has scrolled under it
+  useEffect(() => installFx(), []);
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 24);
     onScroll();
@@ -154,6 +157,7 @@ export function App({ store }: { store: Store }) {
   return (
     <I18nContext.Provider value={i18n}>
      <MoneyContext.Provider value={{ currency: state.settings.currency, rate: state.settings.rate }}>
+     <ToastProvider>
       <div className="app" dir={dir} lang={lang}>
         <header className={scrolled ? "top scrolled" : "top"}>
           <div className="top-row">
@@ -208,6 +212,7 @@ export function App({ store }: { store: Store }) {
 
         <nav className="bottom-nav" aria-label={t("sections")}>
           <div className="bottom-nav-in">
+            <span className="nav-ind" aria-hidden="true" style={{ "--i": TABS.findIndex((x) => x.id === tab) } as React.CSSProperties} />
             {TABS.map((x) => (
               <button key={x.id} type="button" className="nav-btn" data-pilot={`nav-${x.id}`} aria-current={tab === x.id ? "page" : undefined} onClick={() => choose(x.id)}>
                 <span className="nav-ico">
@@ -219,6 +224,7 @@ export function App({ store }: { store: Store }) {
           </div>
         </nav>
       </div>
+     </ToastProvider>
      </MoneyContext.Provider>
     </I18nContext.Provider>
   );

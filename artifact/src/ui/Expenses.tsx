@@ -1,4 +1,4 @@
-import { BackupCard } from "./Backup";
+import { BackupCard, EffectsCard } from "./Backup";
 import { useState } from "react";
 import { currencySymbol, editableAmount, formatMoney, formatMoneyCompact, parseAmount, parseMoney, type Currency } from "../../../lib/money";
 import { addDays, formatDay, formatWeekRange, localeFor, parseISODate, toISODate } from "../../../lib/week";
@@ -112,6 +112,7 @@ export function Expenses({
 
       <SettingsForm store={store} settings={settings} />
       <BackupCard store={store} />
+      <EffectsCard />
     </section>
   );
 }

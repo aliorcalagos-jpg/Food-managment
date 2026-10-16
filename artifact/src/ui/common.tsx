@@ -5,6 +5,7 @@ import { formatMoney } from "../../../lib/money";
 import { formatQuantity } from "../../../lib/quantity";
 import { useMoney } from "../money-context";
 import { unitLabel, useI18n, type Msg } from "../i18n";
+import { useChanged, useTween } from "./motion";
 import { ACTION_W, clampOffset, logicalDx, physicalShift, swipeEnd } from "../swipe";
 
 /** A destructive action confirmed in an iOS-style action sheet. The viewer never shows confirm() dialogs. */
@@ -92,9 +93,12 @@ export function Arrow({ forward = false }: { forward?: boolean }) {
 export function ItemLabel({ quantity, unit, name }: { quantity: number; unit: string; name: string }) {
   const { lang } = useI18n();
   const shown = tidyAmount(quantity, unit); // 1500 g reads 1.5 kg
+  const changed = useChanged(shown.quantity); // a quantity that just changed flashes gold
   return (
     <>
-      <bdi dir="ltr">{formatQuantity(shown.quantity)}</bdi>
+      <bdi dir="ltr" key={shown.quantity} className={changed ? "flash" : undefined}>
+        {formatQuantity(shown.quantity)}
+      </bdi>
       {shown.unit ? <> {unitLabel(lang, shown.unit)}</> : null} <bdi>{name}</bdi>
     </>
   );
@@ -157,11 +161,12 @@ export function Money({ kobo, withOther = false, onlyOther = false }: { kobo: nu
   const { currency, rate } = useMoney();
   const { t } = useI18n();
   const other = currency === "NGN" ? "USD" : "NGN";
+  const rolling = Math.round(useTween(kobo)); // amounts roll to their new value
   return (
     <>
       {!onlyOther && (
         <bdi dir="ltr" className="money">
-          {formatMoney(kobo, currency, rate)}
+          {formatMoney(rolling, currency, rate)}
         </bdi>
       )}
       {(withOther || onlyOther) && (

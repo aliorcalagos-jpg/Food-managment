@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { FX_LEVELS, currentFx, setFx, type Fx } from "../fx";
 import { BACKUP_NUDGE_DAYS, LAST_BACKUP_KEY, backupFileName, buildBackup, daysSince, parseBackup, planImport, type Backup as BackupFile, type Counts, type ImportMode } from "../backup";
 import { useI18n, type MsgKey } from "../i18n";
 import { haptic, pickTextFile, saveTextFile } from "../native";
@@ -108,6 +109,35 @@ export function BackupCard({ store }: { store: Store }) {
           )}
         </Sheet>
       )}
+    </section>
+  );
+}
+
+/** How much the app moves. Kept on this device. */
+export function EffectsCard() {
+  const { t } = useI18n();
+  const [level, setLevel] = useState<Fx>(currentFx);
+  const label: Record<Fx, MsgKey> = { full: "fxFull", calm: "fxCalm", off: "fxOff" };
+  return (
+    <section className="card" aria-labelledby="fx-h">
+      <h3 id="fx-h">{t("fxH")}</h3>
+      <p className="muted small">{t("fxHint")}</p>
+      <div className="segmented" role="group" aria-labelledby="fx-h">
+        {FX_LEVELS.map((l) => (
+          <button
+            key={l}
+            type="button"
+            className="chip"
+            aria-pressed={level === l}
+            onClick={() => {
+              setFx(l);
+              setLevel(l);
+            }}
+          >
+            {t(label[l])}
+          </button>
+        ))}
+      </div>
     </section>
   );
 }

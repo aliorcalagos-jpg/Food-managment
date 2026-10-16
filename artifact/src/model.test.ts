@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  addItem, buildBuyList, mergePlanIntoList, clearChecked, dropRecipeFromWeek, isEmptyWeek, removeItem, setPick,
+  addItem, buildBuyList, restoreItem, mergePlanIntoList, clearChecked, dropRecipeFromWeek, isEmptyWeek, removeItem, setPick,
   toList, toRecipe, toWeekPlan, toggleItem, type Recipe,
   DEFAULT_SETTINGS, fromSettings, setItemPrice, setShoppedOn, toSettings,
 } from "./model";
@@ -239,5 +239,21 @@ describe("mergePlanIntoList", () => {
     const l = toList("x", { items: [{ id: "i", name: "milk" }] });
     expect(l.items[0].fromPlan).toBe(false);
     expect(l.dismissed).toEqual([]);
+  });
+});
+
+describe("restoreItem (Undo)", () => {
+  const item = { id: "a|", name: "a", quantity: 1, unit: "", category: null, checked: true, price: 500, fromPlan: true };
+  const other = { ...item, id: "b|", name: "b" };
+  const list = { id: "l", name: "L", rangeStart: null, rangeEnd: null, createdAt: "", shoppedOn: "2026-10-14", items: [other], dismissed: ["a|"] };
+  it("puts the line back where it was with its tick and price, and forgets that it was dismissed", () => {
+    const back = restoreItem(list, item, 0, []);
+    expect(back.items.map((i) => i.id)).toEqual(["a|", "b|"]);
+    expect(back.items[0]).toMatchObject({ checked: true, price: 500 });
+    expect(back.dismissed).toEqual([]);
+  });
+  it("does nothing when the line is already there", () => {
+    const again = restoreItem({ ...list, items: [item] }, item, 0, []);
+    expect(again.items).toHaveLength(1);
   });
 });

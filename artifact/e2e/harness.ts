@@ -12,7 +12,7 @@ export type Seed = Record<string, Record<string, unknown>>; // collection -> id 
  * cdnjs React requests from pinned local copies, and installs an in-memory stand-in for the
  * claude.ai `db` capability. The fake is kept in localStorage so reloads see earlier writes.
  */
-export async function openArtifact(page: Page, opts: { noDb?: boolean; seed?: Seed; today?: string; lang?: "en" | "ar" | null; tab?: string | null } = {}) {
+export async function openArtifact(page: Page, opts: { noDb?: boolean; seed?: Seed; today?: string; lang?: "en" | "ar" | null; tab?: string | null; fx?: "full" | "calm" | "off" } = {}) {
   const fragment = readFileSync(resolve(ROOT, "dist/meal-planner.html"), "utf8");
   const html = `<!doctype html><html><head><meta charset="utf8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"></head><body>${fragment}</body></html>`;
 
@@ -34,12 +34,14 @@ export async function openArtifact(page: Page, opts: { noDb?: boolean; seed?: Se
   if (opts.today) await page.clock.install({ time: new Date(`${opts.today}T12:00:00`) });
 
   await page.addInitScript(
-    ({ noDb, seed, lang, tab }) => {
+    ({ noDb, seed, lang, tab, fx }) => {
       const KEY = "fake-claude-db";
       // the remembered language of this device; only set when nothing is remembered yet, so a switch survives reloads
       if (lang && !localStorage.getItem("meal-planner:lang")) localStorage.setItem("meal-planner:lang", lang);
       // the tab the page opens on; null leaves it unset so the page uses its own default (Expenses)
       if (tab && !localStorage.getItem("meal-planner:tab")) localStorage.setItem("meal-planner:tab", tab);
+      // tests run with effects off (steady layouts to measure); the motion tests turn them on
+      if (!localStorage.getItem("meal-planner:fx")) localStorage.setItem("meal-planner:fx", fx);
       type Docs = Record<string, Record<string, unknown>>;
       const load = (): Docs => JSON.parse(localStorage.getItem(KEY) || "{}");
       const save = (d: Docs) => localStorage.setItem(KEY, JSON.stringify(d));
@@ -98,7 +100,7 @@ export async function openArtifact(page: Page, opts: { noDb?: boolean; seed?: Se
       };
       w.claude = { use: async (name: string) => (name === "db" && !noDb ? db : null) };
     },
-    { noDb: !!opts.noDb, seed: opts.seed ?? null, lang: opts.lang === undefined ? "en" : opts.lang, tab: opts.tab === undefined ? "recipes" : opts.tab },
+    { noDb: !!opts.noDb, seed: opts.seed ?? null, lang: opts.lang === undefined ? "en" : opts.lang, tab: opts.tab === undefined ? "recipes" : opts.tab, fx: opts.fx ?? "off" },
   );
 
   await page.goto(`${ORIGIN}/`);

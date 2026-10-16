@@ -190,18 +190,27 @@ export function Pilot({ state, tab, go }: { state: State; tab: PilotTab; go: (ta
     return () => cancelAnimationFrame(raf);
   }, [cur]);
 
-  // The card goes wherever it does not sit on the control it is pointing at.
+  // The card goes wherever it does not sit on the control it is pointing at. It is measured again whenever its own
+  // height changes (a longer step text, the "Done" note), not only when the highlight moves.
+  const [cardH, setCardH] = useState(0);
+  useLayoutEffect(() => {
+    const el = cardRef.current;
+    if (!open || !el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => setCardH(el.offsetHeight));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [open, wfId]);
   useLayoutEffect(() => {
     if (!open || !ring) return;
-    const h = cardRef.current?.offsetHeight || 240;
+    const h = cardH || cardRef.current?.offsetHeight || 240;
     const vh = window.innerHeight;
-    const navH = document.querySelector<HTMLElement>(".bottom-nav")?.offsetHeight ?? 0;
+    const navH = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--nav-h")) || 0; // where the card really sits (the bar itself may be hidden)
     const bottom = { a: vh - navH - 8 - h, b: vh - navH - 8 };
     const top = { a: 8, b: 8 + h };
     const over = (r: { a: number; b: number }) => (ring ? Math.max(0, Math.min(r.b, ring.top + ring.height) - Math.max(r.a, ring.top)) : 0);
     const next = over(bottom) <= over(top) ? "bottom" : "top";
     setPlace((p) => (p === next ? p : next));
-  }, [open, ring, wfId, done, note]);
+  }, [open, ring, wfId, done, note, cardH]);
 
   const showMe = () => {
     const hit = cur ? findTarget(cur.targets) : null;

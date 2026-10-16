@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
 import { openArtifact, stored, type Seed } from "./harness";
 
@@ -15,7 +15,7 @@ const goTab = (page: Page, name: string) => page.getByRole("button", { name, exa
 async function saveBackup(page: Page, path: string) {
   await goTab(page, "Spending");
   await expect(page.getByText("No backup yet")).toBeVisible();
-  const [download] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: "Save a backup file" }).click()]);
+  const [download] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: "Export a backup file" }).click()]);
   expect(download.suggestedFilename()).toBe("meal-planner-2026-10-14.json");
   await download.saveAs(path);
   await expect(page.getByText("Backup saved.")).toBeVisible();
@@ -73,7 +73,7 @@ test("a file that is not a backup is refused and nothing is written", async ({ p
   await openArtifact(page, { today: TODAY, lang: "en", tab: "week", seed });
   await goTab(page, "Spending");
   const bad = info.outputPath("bad.json");
-  require("node:fs").writeFileSync(bad, JSON.stringify({ hello: "world" }));
+  writeFileSync(bad, JSON.stringify({ hello: "world" }));
   await chooseFile(page, bad);
   await expect(page.getByRole("alert").filter({ hasText: "not a Meal Planner backup" })).toBeVisible();
   expect((await stored(page, "recipes")).length).toBe(2);

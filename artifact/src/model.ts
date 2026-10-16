@@ -222,6 +222,12 @@ export const removeItem = (list: ShoppingList, itemId: string): ShoppingList => 
   };
 };
 
+/** Puts a removed line back (Undo): where it was, with what you had done to it, and forgets it was dismissed. */
+export const restoreItem = (list: ShoppingList, item: ListItem, at: number, dismissed: string[] | undefined): ShoppingList =>
+  list.items.some((i) => i.id === item.id)
+    ? list
+    : { ...list, items: [...list.items.slice(0, at), item, ...list.items.slice(at)], dismissed };
+
 /**
  * Brings a week's list in step with what its foods need. Lines you added stay; lines from the foods are added,
  * rescaled or dropped, but keep what you did to them (ticked, priced). A line nobody needs any more stays (as an
