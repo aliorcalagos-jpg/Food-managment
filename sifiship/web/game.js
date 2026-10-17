@@ -1,5 +1,5 @@
 // SIFIship: drawing, input, effects, sound and screens. The rules live in logic.js.
-import { COLORS, DIRS, generateLevel, occupancy, blocker, pickShooter } from "./logic.js";
+import { COLORS, DIRS, BAYS, EXTRA_BAYS, generateLevel, occupancy, blocker, pickShooter, radarHint } from "./logic.js";
 
 const canvas = document.getElementById("c");
 const ctx = canvas.getContext("2d");
@@ -13,9 +13,10 @@ const GRACE = 3; // seconds before the wave starts closing in
 
 // ---------- saved progress (per phone) ----------
 const SAVE_KEY = "sifiship.v1";
-let save = { level: 1, best: 0, stars: {}, sound: true, vibrate: true };
+let save = { level: 1, best: 0, stars: {}, sound: true, vibrate: true, boost: { bay: 2, undo: 3, radar: 3 } };
 try {
-  save = { ...save, ...JSON.parse(localStorage.getItem(SAVE_KEY) || "{}") };
+  const stored = JSON.parse(localStorage.getItem(SAVE_KEY) || "{}");
+  save = { ...save, ...stored, boost: { ...save.boost, ...(stored.boost || {}) } };
 } catch {
   /* private mode or bad data: start fresh */
 }
@@ -132,12 +133,16 @@ function layout() {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   L.hudH = 62;
   L.enemyTop = L.hudH + 4;
-  L.shieldY = L.enemyTop + Math.max(150, L.H * 0.27);
-  L.bayW = Math.min((L.W - 32 - 4 * 8) / 5, 74);
-  L.bayH = L.bayW * 1.18;
-  L.bayTop = L.shieldY + 14;
+  // The hangar gets the room first: the enemy zone takes 19% of the height (100-200 px).
+  L.shieldY = L.enemyTop + Math.min(200, Math.max(100, L.H * 0.19));
+  L.slots = BAYS + EXTRA_BAYS;
+  L.bayGap = 6;
+  L.bayW = Math.min((L.W - 32 - (L.slots - 1) * L.bayGap) / L.slots, 64);
+  L.bayH = L.bayW * 1.15;
+  L.bayTop = L.shieldY + 12;
   L.bayY = L.bayTop + L.bayH / 2;
   L.gridTop = L.bayTop + L.bayH + 30;
+  L.boostH = 66; // booster bar at the bottom
   if (G.cfg) placeGrid();
   L.perRow = 7;
   L.sx = Math.min((L.W - 36) / L.perRow, 46);
@@ -145,12 +150,12 @@ function layout() {
 }
 function placeGrid() {
   const { cols, rows } = G.cfg;
-  const availH = L.H - L.gridTop - 14;
+  const availH = L.H - L.gridTop - L.boostH - 6;
   L.cell = Math.floor(Math.min((L.W - 24) / cols, availH / rows));
   L.gx = (L.W - L.cell * cols) / 2;
   L.gy = L.gridTop + Math.max(0, (availH - L.cell * rows) / 2);
 }
-const bayX = (i) => L.W / 2 + (i - 2) * (L.bayW + 8);
+const bayX = (i) => L.W / 2 + (i - (L.slots - 1) / 2) * (L.bayW + L.bayGap);
 
 // ---------- game state ----------
 const G = { phase: "menu", t: 0 };
@@ -183,6 +188,12 @@ function startLevel(n) {
   G.alert = false;
   G.result = null;
   G.lastTap = G.t;
+  G.launched = []; // ship ids in launch order, for Undo
+  G.launches = 0;
+  G.hintId = -1;
+  G.hintUntil = 0;
+  G.usedBoost = false;
+  G.reward = null;
   refreshOcc();
   placeGrid();
   fx.particles = [];
@@ -192,7 +203,7 @@ function startLevel(n) {
   fx.warps = [];
   G.phase = "play";
   showOnly(null);
-  $("pauseBtn").classList.add("show");
+  syncBoosts();
   floatText(lv.cfg.boss ? "⚠ BOSS WAVE" : `SECTOR ${n}`, L.W / 2, L.shieldY - 40, lv.cfg.boss ? "#ff3b5c" : "#22e4ff", 30, 1.6);
 }
 
@@ -248,12 +259,85 @@ function ring(x, y, color, maxR = 40) {
 canvas.addEventListener("pointerdown", (e) => {
   if (G.phase !== "play") return;
   initAudio();
+  // The locked sixth bay opens with the +1 bay booster.
+  const lx = bayX(L.slots - 1);
+  if (G.bays.length < L.slots && Math.abs(e.clientX - lx) < L.bayW / 2 && Math.abs(e.clientY - L.bayY) < L.bayH / 2) {
+    spendBoost("bay");
+    return;
+  }
   const cx = Math.floor((e.clientX - L.gx) / L.cell);
   const cy = Math.floor((e.clientY - L.gy) / L.cell);
   if (cx < 0 || cy < 0 || cx >= G.cfg.cols || cy >= G.cfg.rows) return;
   const id = G.occ[cy][cx];
   if (id !== -1) tapShip(id);
 });
+
+// ---------- boosters ----------
+const BOOSTS = {
+  bay: { label: "+1 BAY", icon: "⊕" },
+  undo: { label: "UNDO", icon: "↶" },
+  radar: { label: "RADAR", icon: "◎" },
+};
+function canBoost(kind) {
+  if (G.phase !== "play" || save.boost[kind] <= 0) return false;
+  if (kind === "bay") return G.bays.length < L.slots;
+  if (kind === "undo") return undoTarget() !== -1;
+  if (kind === "radar") return G.ships.some((s) => s.state === "grid");
+  return false;
+}
+/** The last launched rocket that is docked and has not fired yet (it can go back to the hangar). */
+function undoTarget() {
+  for (let k = G.launched.length - 1; k >= 0; k--) {
+    const id = G.launched[k];
+    const i = G.bays.findIndex((b) => b && b.ship === id);
+    if (i === -1) continue;
+    const b = G.bays[i];
+    return b.ready && b.ammo === G.ships[id].cap ? i : -1;
+  }
+  return -1;
+}
+function spendBoost(kind) {
+  if (!canBoost(kind)) {
+    sfx.error();
+    return false;
+  }
+  save.boost[kind]--;
+  G.usedBoost = true;
+  persist();
+  if (kind === "bay") {
+    G.bays.push(null);
+    const x = bayX(G.bays.length - 1);
+    ring(x, L.bayY, "#ffc23a", L.bayW);
+    burst(x, L.bayY, "#ffc23a", 24, 180, 3);
+    floatText("BAY UNLOCKED", x, L.bayY - L.bayH * 0.7, "#ffc23a", 18, 1);
+  } else if (kind === "undo") {
+    const i = undoTarget();
+    const s = G.ships[G.bays[i].ship];
+    G.bays[i] = null;
+    G.launched.splice(G.launched.lastIndexOf(s.id), 1);
+    s.state = "grid";
+    refreshOcc();
+    const [x, y] = shipCenter(s);
+    ring(x, y, COLORS[s.color].glow, L.cell * s.len * 0.7);
+    ring(bayX(i), L.bayY, "#ffffff", L.bayW * 0.6);
+  } else if (kind === "radar") {
+    const inGrid = G.ships.filter((s) => s.state === "grid");
+    const hint = radarHint(inGrid, G.queue, G.q, G.bays, G.cfg.cols, G.cfg.rows);
+    G.hintId = hint ? hint.id : -1;
+    G.hintUntil = G.t + 4;
+  }
+  tone(660, 0.12, "triangle", 0.2, 1320);
+  buzz("tick");
+  syncBoosts();
+  return true;
+}
+function syncBoosts() {
+  for (const kind of Object.keys(BOOSTS)) {
+    const el = $("boost-" + kind);
+    el.querySelector("b").textContent = save.boost[kind];
+    el.classList.toggle("off", !canBoost(kind));
+  }
+}
 
 function tapShip(id) {
   const s = G.ships[id];
@@ -273,7 +357,7 @@ function tapShip(id) {
     sfx.error();
     buzz("long");
     fx.shake = Math.max(fx.shake, 5);
-    floatText("ALL BAYS FULL", L.W / 2, L.bayY, "#ff3b5c", 20, 0.9);
+    floatText("BAYS FULL", L.W / 2, L.bayY, "#ff3b5c", 20, 0.9);
     G.bayShake = 0.35;
     return false;
   }
@@ -281,6 +365,9 @@ function tapShip(id) {
   G.peak = Math.max(G.peak, G.bays.filter(Boolean).length);
   s.state = "fly";
   s.anim = { t: 0, phase: 1, off: 0, v: L.cell * 6, bay };
+  G.launched.push(id);
+  G.launches++;
+  G.hintId = -1;
   refreshOcc();
   sfx.launch();
   buzz("tick");
@@ -312,6 +399,11 @@ function update(dt) {
     } else if (s.state === "fly") updateFlight(s, dt);
   }
   for (const b of G.bays) if (b) b.recoil = Math.max(0, b.recoil - dt * 6);
+  G.boostSync = (G.boostSync || 0) - dt;
+  if (G.boostSync <= 0) {
+    syncBoosts();
+    G.boostSync = 0.2;
+  }
   G.bayShake = Math.max(0, (G.bayShake || 0) - dt);
   G.qAnim += (G.q - G.qAnim) * Math.min(1, dt * 9);
 
@@ -491,13 +583,22 @@ function end(result) {
 }
 
 function finish() {
-  $("pauseBtn").classList.remove("show");
   if (G.result === "win") {
     const hullOk = G.hull >= 70;
     const baysOk = G.peak <= 3;
     const stars = 1 + (hullOk ? 1 : 0) + (baysOk ? 1 : 0);
-    save.stars[G.n] = Math.max(save.stars[G.n] || 0, stars);
+    const before = save.stars[G.n] || 0;
+    const rankBefore = rankOf(totalStars());
+    // Rewards come once per sector: first 3 stars, first boss clear, and every 5th sector cleared.
+    const reward = {};
+    const add = (k, v = 1) => (reward[k] = (reward[k] || 0) + v);
+    if (stars === 3 && before < 3) add(["bay", "undo", "radar"][G.n % 3]);
+    if (!before && G.cfg.boss) ["bay", "undo", "radar"].forEach((k) => add(k));
+    if (!before && G.n % 5 === 0) add("radar");
+    for (const k of Object.keys(reward)) save.boost[k] += reward[k];
+    save.stars[G.n] = Math.max(before, stars);
     save.level = Math.max(save.level, G.n + 1);
+    const rankAfter = rankOf(totalStars());
     const best = G.score > save.best;
     save.best = Math.max(save.best, G.score);
     persist();
@@ -519,17 +620,68 @@ function finish() {
       `<div class="${hullOk ? "done" : ""}">Shield above 70% (${Math.round(G.hull)}%)</div>` +
       `<div class="${baysOk ? "done" : ""}">Never more than 3 bays in use (${G.peak})</div>`;
     animateNumber($("winScore"), G.score);
-    $("winBest").textContent = best ? "New best score!" : `Best: ${save.best}`;
+    $("winBest").textContent = best ? "New best score!" : `Best: ${save.best.toLocaleString()}`;
+    const got = Object.entries(reward).map(([k, v]) => `+${v} ${BOOSTS[k].label}`);
+    $("winReward").textContent = got.length ? `Reward: ${got.join(" · ")}` : "";
+    $("winRank").innerHTML = rankHtml(rankAfter.name !== rankBefore.name);
+    if (rankAfter.name !== rankBefore.name) setTimeout(() => sfx.combo(5), 1200);
   } else {
     G.phase = "lose";
     showOnly("lose");
+    // A jam can be rescued with a booster instead of a restart.
+    const jam = G.result === "jam";
+    const canBay = jam && G.bays.length < L.slots && save.boost.bay > 0;
+    const canUndo = jam && undoTarget() !== -1 && save.boost.undo > 0;
+    $("contBay").style.display = canBay ? "" : "none";
+    $("contBay").textContent = `⊕ Open bay 6 · ${save.boost.bay} left`;
+    $("contUndo").style.display = canUndo ? "" : "none";
+    $("contUndo").textContent = `↶ Undo last launch · ${save.boost.undo} left`;
     $("loseTitle").textContent = G.result === "jam" ? "HANGAR JAMMED" : "SHIELD DOWN";
     const left = G.queue.length - G.q;
     $("loseText").textContent =
       G.result === "jam"
-        ? `Every bay is holding a ship that can't hit the front enemy. ${left} enemies left. Launch the color the wave needs next.`
-        : `The wave broke through with ${left} enemies left. Keep a ship firing so the wave stays back.`;
+        ? `Every bay holds a rocket that can't hit the front enemy. ${left} enemies left. Launch the color the wave needs next, or rescue the run:`
+        : `The wave broke through with ${left} enemies left. Keep a rocket firing so the wave stays back.`;
   }
+}
+
+/** Back to the jammed sector, with a booster used to get out of it. */
+function continueWith(kind) {
+  G.phase = "play";
+  G.result = null;
+  G.jamTimer = 0;
+  fx.flash = 0;
+  showOnly(null);
+  spendBoost(kind);
+}
+
+// ---------- pilot rank (from all stars earned) ----------
+const RANKS = [
+  [0, "Cadet"],
+  [10, "Pilot"],
+  [25, "Ace"],
+  [50, "Captain"],
+  [90, "Commander"],
+  [150, "Admiral"],
+  [240, "Legend"],
+];
+function totalStars() {
+  return Object.values(save.stars).reduce((a, b) => a + b, 0);
+}
+function rankOf(stars) {
+  let i = 0;
+  while (i + 1 < RANKS.length && stars >= RANKS[i + 1][0]) i++;
+  const next = RANKS[i + 1];
+  return { name: RANKS[i][1], stars, from: RANKS[i][0], next: next ? next[0] : null, nextName: next ? next[1] : null };
+}
+function rankHtml(rankedUp) {
+  const r = rankOf(totalStars());
+  const pct = r.next ? ((r.stars - r.from) / (r.next - r.from)) * 100 : 100;
+  const to = r.next ? `${r.stars} / ${r.next} ★ to ${r.nextName}` : `${r.stars} ★ · top rank`;
+  return (
+    `<div class="rank${rankedUp ? " up" : ""}">${rankedUp ? "RANK UP · " : ""}${r.name.toUpperCase()}</div>` +
+    `<div class="bar"><i style="width:${pct.toFixed(1)}%"></i></div><div class="to">${to}</div>`
+  );
 }
 
 function animateNumber(el, to) {
@@ -634,10 +786,12 @@ function drawHud() {
   ctx.fillStyle = "#8ea3d6";
   ctx.font = "700 11px system-ui, sans-serif";
   ctx.textAlign = "left";
-  ctx.fillText(G.cfg.boss ? "BOSS SECTOR" : "SECTOR", 14, 17);
+  ctx.fillText(`${G.cfg.boss ? "BOSS SECTOR" : "SECTOR"} ${G.n}`, 14, 17);
+  // Rockets still in the hangar: the count to bring down.
+  const inHangar = G.ships.filter((s) => s.state === "grid" || s.state === "bounce").length;
   ctx.fillStyle = "#e8f1ff";
   ctx.font = "900 20px system-ui, sans-serif";
-  ctx.fillText(String(G.n), 14, 36);
+  ctx.fillText(`🚀 ${inHangar}`, 14, 36);
   ctx.textAlign = "center";
   ctx.fillStyle = "#8ea3d6";
   ctx.font = "700 11px system-ui, sans-serif";
@@ -784,12 +938,16 @@ function drawShield() {
 
 function drawBays() {
   const shakeX = G.bayShake > 0 ? Math.sin(G.t * 70) * 5 * (G.bayShake / 0.35) : 0;
-  for (let i = 0; i < G.bays.length; i++) {
+  for (let i = 0; i < L.slots; i++) {
     const b = G.bays[i];
     const x = bayX(i) + shakeX;
     const y = L.bayY;
     const w = L.bayW;
     const h = L.bayH;
+    if (i >= G.bays.length) {
+      drawLockedBay(x, y, w, h);
+      continue;
+    }
     ctx.save();
     if (b) {
       const c = COLORS[b.color];
@@ -829,6 +987,43 @@ function drawBays() {
   }
 }
 
+/** The sixth bay: locked until the +1 bay booster opens it; it glows when it would save the player. */
+function drawLockedBay(x, y, w, h) {
+  const urgent = G.alert || G.bays.every(Boolean);
+  const have = save.boost.bay > 0;
+  ctx.save();
+  ctx.fillStyle = "rgba(255, 194, 58, 0.06)";
+  ctx.strokeStyle = have ? `rgba(255, 194, 58, ${urgent ? 0.6 + 0.4 * Math.sin(G.t * 8) : 0.45})` : "rgba(120, 130, 160, 0.3)";
+  if (urgent && have) {
+    ctx.shadowColor = "#ffc23a";
+    ctx.shadowBlur = 14;
+  }
+  ctx.lineWidth = 2;
+  ctx.setLineDash([3, 4]);
+  roundRect(x - w / 2, y - h / 2, w, h, 10);
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = `${Math.round(w * 0.36)}px system-ui, sans-serif`;
+  ctx.globalAlpha = have ? 0.95 : 0.4;
+  ctx.fillText("🔒", x, y - h * 0.08);
+  ctx.font = "800 10px system-ui, sans-serif";
+  ctx.fillStyle = have ? "#ffc23a" : "#8ea3d6";
+  ctx.fillText(have ? `+1 (${save.boost.bay})` : "+1", x, y + h * 0.3);
+  ctx.globalAlpha = 1;
+}
+
+/** The rocket to highlight: a Radar pick, or (sectors 1-2) a free hint after a short idle time. */
+function currentHint() {
+  if (G.hintId !== -1 && G.t < G.hintUntil && G.ships[G.hintId].state === "grid") return G.ships[G.hintId];
+  const idle = G.n === 1 && G.launches === 0 ? 0.8 : 4;
+  if (G.n > 2 || G.t - G.lastTap < idle) return null;
+  const inGrid = G.ships.filter((s) => s.state === "grid");
+  return radarHint(inGrid, G.queue, G.q, G.bays, G.cfg.cols, G.cfg.rows);
+}
+
 function drawGrid() {
   const { cols, rows } = G.cfg;
   const { gx, gy, cell } = L;
@@ -866,19 +1061,48 @@ function drawGrid() {
       y += DIRS[s.dir][1] * off;
     }
     const pad = cell * 0.1;
+    // Rockets of the color the wave's front needs get a soft glow underneath (it says nothing about
+    // whether they are free, so the puzzle stays the player's).
+    if (G.queue[G.q] === s.color && G.phase === "play") {
+      const horizontal = s.dir === "left" || s.dir === "right";
+      const w = (horizontal ? s.len : 1) * cell - pad;
+      const h = (horizontal ? 1 : s.len) * cell - pad;
+      ctx.fillStyle = `rgba(255, 255, 255, ${0.07 + 0.05 * Math.sin(G.t * 5)})`;
+      roundRect(x - w / 2, y - h / 2, w, h, 8);
+      ctx.fill();
+    }
     drawShip(x, y, dirAngle[s.dir], s.len * cell - pad, cell - pad * 1.6, COLORS[s.color], { arrow: true, flash: s.flash, engine: 0.35 });
   }
-  // First sectors: after a few idle seconds, pulse the ship the intended solution launches next.
-  if (G.n <= 2 && G.phase === "play" && G.t - G.lastTap > 4) {
-    const hint = G.solution.map((id) => G.ships[id]).find((s) => s.state === "grid");
-    if (hint) {
-      const [x, y] = shipCenter(hint);
-      const k = (G.t * 1.5) % 1;
-      ctx.strokeStyle = `rgba(255, 255, 255, ${1 - k})`;
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.arc(x, y, cell * (0.5 + k * 0.6) * (hint.len / 2 + 0.3), 0, Math.PI * 2);
-      ctx.stroke();
+  const hint = G.phase === "play" ? currentHint() : null;
+  if (hint) {
+    // A glowing frame around the rocket, plus a second one that grows and fades.
+    const [x, y] = shipCenter(hint);
+    const horizontal = hint.dir === "left" || hint.dir === "right";
+    const w = (horizontal ? hint.len : 1) * cell;
+    const h = (horizontal ? 1 : hint.len) * cell;
+    const k = (G.t * 1.5) % 1;
+    ctx.save();
+    ctx.strokeStyle = "#ffffff";
+    ctx.shadowColor = "#ffffff";
+    ctx.shadowBlur = 12;
+    ctx.lineWidth = 2.5;
+    roundRect(x - w / 2, y - h / 2, w, h, 10);
+    ctx.stroke();
+    ctx.globalAlpha = 1 - k;
+    const grow = k * cell * 0.3;
+    roundRect(x - w / 2 - grow, y - h / 2 - grow, w + grow * 2, h + grow * 2, 10 + grow);
+    ctx.stroke();
+    ctx.restore();
+    if (G.n === 1 && G.launches === 0) {
+      // In the gap between the bays and the hangar, where it covers nothing.
+      ctx.font = "900 14px system-ui, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillStyle = "#ffffff";
+      ctx.shadowColor = "#22e4ff";
+      ctx.shadowBlur = 10;
+      ctx.fillText("TAP THE GLOWING ROCKET TO LAUNCH", L.W / 2, gy - 18 + Math.sin(G.t * 4) * 2);
+      ctx.shadowBlur = 0;
     }
   }
 }
@@ -1059,16 +1283,52 @@ function roundRect(x, y, w, h, r) {
 }
 
 // ---------- screens ----------
-const overlays = ["menu", "pause", "win", "lose"];
+const overlays = ["menu", "pause", "win", "lose", "map"];
 function showOnly(id) {
   for (const o of overlays) $(o).classList.toggle("show", o === id);
+  // In-game controls only while playing.
+  $("boosts").classList.toggle("show", id === null);
+  $("pauseBtn").classList.toggle("show", id === null);
 }
 function showMenu() {
   G.phase = "menu";
-  $("pauseBtn").classList.remove("show");
-  const total = Object.values(save.stars).reduce((a, b) => a + b, 0);
-  $("menuLevel").textContent = `Sector ${save.level}${total ? `  ·  ★ ${total}` : ""}${save.best ? `  ·  Best ${save.best.toLocaleString()}` : ""}`;
+  $("menuLevel").textContent = `Next: sector ${save.level}${save.best ? `  ·  Best ${save.best.toLocaleString()}` : ""}`;
+  $("menuRank").innerHTML = rankHtml(false);
+  $("playBtn").textContent = save.level > 1 ? `Launch sector ${save.level}` : "Launch";
   showOnly("menu");
+}
+/** All sectors as a map: cleared ones show their stars, the next one glows, later ones are locked. */
+function showMap() {
+  G.phase = "map";
+  const last = Math.max(20, Math.ceil((save.level + 5) / 5) * 5);
+  let html = "";
+  for (let n = 1; n <= last; n++) {
+    const st = save.stars[n] || 0;
+    const open = n <= save.level;
+    const cls = ["sector", open ? "" : "locked", n === save.level ? "next" : "", n % 10 === 0 ? "boss" : ""].join(" ");
+    const starRow = open && n < save.level ? "★".repeat(st) + "☆".repeat(3 - st) : open ? "GO" : "🔒";
+    html += `<button class="${cls}" data-n="${n}" ${open ? "" : "disabled"}><b>${n % 10 === 0 ? "☠ " : ""}${n}</b><span>${starRow}</span></button>`;
+  }
+  $("mapGrid").innerHTML = html;
+  $("mapInfo").textContent = `${totalStars()} ★ earned · ${Object.keys(save.stars).length} sectors cleared`;
+  showOnly("map");
+  const next = $("mapGrid").querySelector(".next");
+  if (next) next.scrollIntoView({ block: "center" });
+}
+$("mapGrid").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-n]");
+  if (!b || b.disabled) return;
+  initAudio();
+  sfx.click();
+  startLevel(Number(b.dataset.n));
+});
+for (const kind of Object.keys(BOOSTS)) {
+  const el = $("boost-" + kind);
+  el.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    initAudio();
+    spendBoost(kind);
+  });
 }
 function pause() {
   if (G.phase !== "play") return;
@@ -1102,6 +1362,11 @@ onTap("nextBtn", () => startLevel(G.n + 1));
 onTap("replayBtn", () => startLevel(G.n));
 onTap("retryBtn", () => startLevel(G.n));
 onTap("loseMenuBtn", showMenu);
+onTap("mapBtn", showMap);
+onTap("mapBackBtn", showMenu);
+onTap("winMapBtn", showMap);
+onTap("contBay", () => continueWith("bay"));
+onTap("contUndo", () => continueWith("undo"));
 onTap("sndBtn", () => {
   save.sound = !save.sound;
   syncToggles();
@@ -1119,7 +1384,7 @@ syncToggles();
 window.__back = () => {
   if (G.phase === "play") return pause(), true;
   if (G.phase === "pause") return resume(), true;
-  if (G.phase === "win" || G.phase === "lose") return showMenu(), true;
+  if (G.phase === "win" || G.phase === "lose" || G.phase === "map") return showMenu(), true;
   return false;
 };
 window.__pause = pause;

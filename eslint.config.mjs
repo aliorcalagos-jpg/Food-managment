@@ -15,6 +15,7 @@ const eslintConfig = defineConfig([
     // Third-party test fixtures and generated build output are not our code.
     "artifact/test/vendor/**",
     "artifact/dist/**",
+    "sifiship/android/build/**",
   ]),
 ]);
 

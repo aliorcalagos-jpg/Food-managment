@@ -10,10 +10,12 @@ import {
   blocker,
   exitPath,
   pickShooter,
+  radarHint,
+  difficulty,
   BAYS,
 } from "../web/logic.js";
 
-test("levels 1-150 are solvable within their bay budget", () => {
+test("sectors 1-150 are solvable within their bay budget", () => {
   for (let n = 1; n <= 150; n++) {
     const { cfg, ships, queue, order } = generateLevel(n);
     assert.ok(orderClears(ships, order, cfg.cols, cfg.rows), `level ${n}: order blocked`);
@@ -31,13 +33,44 @@ test("a level is the same every time", () => {
   assert.deepEqual(generateLevel(7), generateLevel(7));
 });
 
-test("later levels start with ships blocked and grow", () => {
-  const first = generateLevel(1);
-  const later = generateLevel(20);
-  assert.ok(later.ships.length > first.ships.length);
+test("the curve grows: bigger boards, more rockets, more of them blocked", () => {
+  const avg = (from, to, f) => {
+    let sum = 0;
+    for (let n = from; n <= to; n++) sum += f(generateLevel(n));
+    return sum / (to - from + 1);
+  };
+  const rockets = (l) => l.ships.length;
+  const early = avg(1, 10, rockets);
+  const late = avg(31, 40, rockets);
+  assert.ok(late >= early * 1.8, `rockets ${early} -> ${late}`);
+  assert.ok(late >= 22);
+  const later = generateLevel(30);
   const occ = occupancy(later.ships, later.cfg.cols, later.cfg.rows);
   const blocked = later.ships.filter((s) => blocker(s, occ, later.cfg.cols, later.cfg.rows)).length;
   assert.ok(blocked >= later.ships.length * 0.4);
+  // The growth term never falls; the 5-sector cycle makes every 5th sector a breather.
+  for (let n = 2; n <= 60; n++) assert.ok(difficulty(n).t > difficulty(n - 1).t);
+  assert.ok(difficulty(5).e < difficulty(4).e && difficulty(15).e < difficulty(14).e);
+  assert.ok(difficulty(10).e > difficulty(9).e, "boss sector is a peak");
+});
+
+test("sector 1 starts with every rocket free", () => {
+  const { ships, cfg } = generateLevel(1);
+  const occ = occupancy(ships, cfg.cols, cfg.rows);
+  assert.equal(ships.filter((s) => blocker(s, occ, cfg.cols, cfg.rows)).length, 0);
+});
+
+test("radar picks a free rocket of the first color the bays do not cover", () => {
+  const ships = [
+    { id: 0, x: 0, y: 1, len: 2, dir: "up", color: 1, cap: 4 }, // blocked by ship 1
+    { id: 1, x: 0, y: 0, len: 2, dir: "right", color: 1, cap: 4 },
+    { id: 2, x: 3, y: 2, len: 2, dir: "down", color: 2, cap: 4 },
+  ];
+  const queue = [0, 0, 1, 1, 2];
+  // Color 0 is covered by a docked ship, so the next need is color 1: ship 1 is free, ship 0 is not.
+  const bays = [{ color: 0, ammo: 2, ready: true }, null];
+  assert.equal(radarHint(ships, queue, 0, bays, 5, 5).id, 1);
+  assert.equal(radarHint(ships, queue, 4, [null], 5, 5).id, 2);
 });
 
 test("exit path runs from the nose to the edge", () => {
