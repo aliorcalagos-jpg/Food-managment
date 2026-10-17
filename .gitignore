@@ -56,3 +56,7 @@ next-env.d.ts
 # Android app: signing key and build output stay local
 /android/*.keystore
 /android/build/
+
+# SIFIship game: signing key and build output stay local (the release APK in sifiship/dist/ is committed)
+/sifiship/android/*.keystore
+/sifiship/android/build/

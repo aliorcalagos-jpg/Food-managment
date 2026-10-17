@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#05060f">
+<title>SIFIship</title>
+<style>
+  :root {
+    --bg: #05060f;
+    --panel: rgba(12, 18, 40, 0.92);
+    --line: #2a3a7a;
+    --text: #e8f1ff;
+    --dim: #8ea3d6;
+    --accent: #22e4ff;
+    --warn: #ff3b5c;
+    --gold: #ffc23a;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); overflow: hidden;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; user-select: none; -webkit-user-select: none;
+    touch-action: none; overscroll-behavior: none; }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  .overlay { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; padding: 16px;
+    background: radial-gradient(ellipse at center, rgba(5, 8, 25, 0.75), rgba(2, 3, 10, 0.92)); z-index: 5; }
+  .overlay.show { display: flex; animation: fade 0.25s ease-out; }
+  @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+  .card { width: min(360px, 100%); background: var(--panel); border: 1px solid var(--line); border-radius: 18px;
+    padding: 24px 20px; text-align: center; box-shadow: 0 0 40px rgba(34, 228, 255, 0.15), inset 0 0 30px rgba(34, 228, 255, 0.05);
+    animation: pop 0.35s cubic-bezier(.2, 1.6, .4, 1); }
+  @keyframes pop { from { transform: scale(0.85); } to { transform: scale(1); } }
+  .logo { font-size: 44px; font-weight: 900; letter-spacing: 4px; margin: 4px 0 0;
+    background: linear-gradient(180deg, #ffffff, #22e4ff 60%, #b26bff); -webkit-background-clip: text; background-clip: text;
+    color: transparent; filter: drop-shadow(0 0 12px rgba(34, 228, 255, 0.6)); }
+  .sub { color: var(--dim); letter-spacing: 6px; font-size: 12px; font-weight: 700; text-transform: uppercase; margin-bottom: 18px; }
+  h2 { margin: 0 0 6px; font-size: 26px; letter-spacing: 3px; font-weight: 900; }
+  h2.win { color: var(--accent); text-shadow: 0 0 16px rgba(34, 228, 255, 0.7); }
+  h2.lose { color: var(--warn); text-shadow: 0 0 16px rgba(255, 59, 92, 0.7); }
+  p { color: var(--dim); margin: 6px 0; font-size: 14px; line-height: 1.45; }
+  .btn { display: block; width: 100%; margin-top: 12px; padding: 15px; border: 0; border-radius: 12px; cursor: pointer;
+    font: 800 17px/1 inherit; font-family: inherit; letter-spacing: 3px; text-transform: uppercase; color: #02121a;
+    background: linear-gradient(180deg, #7cf3ff, #12b8d9); box-shadow: 0 0 22px rgba(34, 228, 255, 0.45), inset 0 -3px 0 rgba(0, 0, 0, 0.25); }
+  .btn:active { transform: translateY(2px) scale(0.98); }
+  .btn.ghost { background: transparent; color: var(--text); border: 1px solid var(--line); box-shadow: none; font-size: 14px; padding: 12px; }
+  .stars { font-size: 46px; letter-spacing: 6px; margin: 8px 0 4px; }
+  .stars span { display: inline-block; color: #26304f; transform: scale(0.4); transition: transform 0.35s cubic-bezier(.2, 1.8, .4, 1), color 0.2s; }
+  .stars span.on { color: var(--gold); text-shadow: 0 0 18px rgba(255, 194, 58, 0.8); transform: scale(1); }
+  .stars span.off { transform: scale(0.85); }
+  .goals { text-align: left; margin: 10px auto 2px; font-size: 13px; color: var(--dim); width: fit-content; }
+  .goals div::before { content: "○ "; }
+  .goals div.done { color: var(--text); }
+  .goals div.done::before { content: "★ "; color: var(--gold); }
+  .score { font-size: 30px; font-weight: 900; color: var(--text); margin-top: 4px; }
+  .row { display: flex; gap: 10px; }
+  .row .btn { flex: 1; }
+  .how { text-align: left; margin: 14px 0 4px; }
+  .how div { display: flex; gap: 10px; align-items: flex-start; margin: 8px 0; font-size: 14px; color: var(--dim); }
+  .how b { color: var(--text); }
+  .how i { font-style: normal; flex: none; width: 26px; height: 26px; border-radius: 8px; background: rgba(34, 228, 255, 0.12);
+    border: 1px solid var(--line); display: grid; place-items: center; font-size: 14px; }
+  .toggles { display: flex; gap: 8px; margin-top: 12px; }
+  .toggles button { flex: 1; padding: 10px; border-radius: 10px; border: 1px solid var(--line); background: transparent;
+    color: var(--dim); font: 700 13px inherit; font-family: inherit; letter-spacing: 1px; }
+  .toggles button.on { color: var(--text); border-color: var(--accent); background: rgba(34, 228, 255, 0.1); }
+  #pauseBtn { position: fixed; top: 10px; right: 10px; width: 42px; height: 42px; border-radius: 12px; z-index: 4;
+    border: 1px solid var(--line); background: rgba(12, 18, 40, 0.75); color: var(--text); font-size: 16px; display: none; }
+  #pauseBtn.show { display: block; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<button id="pauseBtn" aria-label="Pause">❚❚</button>
+
+<div class="overlay show" id="menu">
+  <div class="card">
+    <div class="logo">SIFISHIP</div>
+    <div class="sub">Hangar Launch</div>
+    <div class="how">
+      <div><i>➤</i><span><b>Tap a ship</b> to launch it the way its arrow points. Ships in the way block it.</span></div>
+      <div><i>◎</i><span>Launched ships dock in <b>5 bays</b> and shoot enemies of <b>their color</b>.</span></div>
+      <div><i>!</i><span>Fill every bay with the wrong colors and the hangar <b>jams</b>. Keep the wave off the shield.</span></div>
+    </div>
+    <p id="menuLevel">Sector 1</p>
+    <button class="btn" id="playBtn">Launch</button>
+    <div class="toggles">
+      <button id="sndBtn" class="on">Sound</button>
+      <button id="vibBtn" class="on">Vibration</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="pause">
+  <div class="card">
+    <h2>PAUSED</h2>
+    <p id="pauseInfo"></p>
+    <button class="btn" id="resumeBtn">Resume</button>
+    <div class="row">
+      <button class="btn ghost" id="restartBtn">Restart</button>
+      <button class="btn ghost" id="menuBtn">Menu</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="win">
+  <div class="card">
+    <h2 class="win">SECTOR CLEARED</h2>
+    <div class="stars" id="stars"><span>★</span><span>★</span><span>★</span></div>
+    <div class="goals" id="goals"></div>
+    <div class="score" id="winScore">0</div>
+    <p id="winBest"></p>
+    <button class="btn" id="nextBtn">Next sector</button>
+    <button class="btn ghost" id="replayBtn">Replay for stars</button>
+  </div>
+</div>
+
+<div class="overlay" id="lose">
+  <div class="card">
+    <h2 class="lose" id="loseTitle">HANGAR JAMMED</h2>
+    <p id="loseText"></p>
+    <button class="btn" id="retryBtn">Try again</button>
+    <button class="btn ghost" id="loseMenuBtn">Menu</button>
+  </div>
+</div>
+
+<script type="module" src="game.js"></script>
+</body>
+</html>

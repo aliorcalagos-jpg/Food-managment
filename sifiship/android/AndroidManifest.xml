@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="app.sifiship"
+    android:versionCode="1"
+    android:versionName="0.1">
+
+    <!-- Vibration for haptics; nothing else. The game is offline and keeps its progress on the phone. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- Android 7+: the game uses JavaScript modules, which older system WebViews lack. -->
+    <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="24" />
+
+    <application
+        android:allowBackup="false"
+        android:hardwareAccelerated="true"
+        android:icon="@drawable/icon"
+        android:label="@string/app_name"
+        android:theme="@style/Theme">
+        <activity
+            android:name=".MainActivity"
+            android:configChanges="orientation|screenSize|keyboardHidden|uiMode|screenLayout|smallestScreenSize"
+            android:exported="true"
+            android:screenOrientation="portrait">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

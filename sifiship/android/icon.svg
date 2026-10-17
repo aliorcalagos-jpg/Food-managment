@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192">
+  <defs>
+    <radialGradient id="bg" cx="0.35" cy="0.3" r="0.9">
+      <stop offset="0" stop-color="#3a1f7a"/>
+      <stop offset="0.6" stop-color="#0b0f2a"/>
+      <stop offset="1" stop-color="#05060f"/>
+    </radialGradient>
+    <linearGradient id="hull" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#0a7f99"/>
+      <stop offset="0.5" stop-color="#9af3ff"/>
+      <stop offset="1" stop-color="#0a7f99"/>
+    </linearGradient>
+    <linearGradient id="flame" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff2b0"/>
+      <stop offset="1" stop-color="#ff4fd8" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect width="192" height="192" rx="42" fill="url(#bg)"/>
+  <circle cx="40" cy="44" r="2" fill="#cfe3ff"/>
+  <circle cx="150" cy="36" r="1.6" fill="#cfe3ff"/>
+  <circle cx="160" cy="120" r="2" fill="#cfe3ff"/>
+  <circle cx="30" cy="140" r="1.5" fill="#cfe3ff"/>
+  <path d="M84 132 L96 178 L108 132 Z" fill="url(#flame)"/>
+  <path d="M96 126 L52 150 L58 120 L88 96 Z M96 126 L140 150 L134 120 L104 96 Z" fill="#0a7f99"/>
+  <path d="M96 18 C112 40 116 70 114 132 L78 132 C76 70 80 40 96 18 Z" fill="url(#hull)"/>
+  <ellipse cx="96" cy="62" rx="9" ry="16" fill="#0a1428"/>
+  <ellipse cx="93" cy="56" rx="3" ry="7" fill="#c8f5ff" opacity="0.8"/>
+  <circle cx="96" cy="96" r="76" fill="none" stroke="#22e4ff" stroke-opacity="0.25" stroke-width="3"/>
+</svg>
