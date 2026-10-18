@@ -1,22 +1,57 @@
-// SIFIship: drawing, input, effects, sound and screens. The rules live in logic.js.
+// SIFIship: game loop, motion, drawing, input and screens. Rules: logic.js. Progression: progress.js.
+// Sprites: render.js. Sound: audio.js.
 import { COLORS, DIRS, BAYS, EXTRA_BAYS, generateLevel, occupancy, blocker, pickShooter, radarHint } from "./logic.js";
+import { SKINS, xpToNext, addXp, winXp, lossXp, rankFor, levelRewards, nextUnlock, streakMultiplier } from "./progress.js";
+import { setDpr, shipSprite, shadowSprite, glowSprite, saucerSprite, padSprite, hangarTexture, backdrop, drawSprite, rgba } from "./render.js";
+import { sfx, buzz, initAudio, bindSettings } from "./audio.js";
 
 const canvas = document.getElementById("c");
 const ctx = canvas.getContext("2d");
 const $ = (id) => document.getElementById(id);
 
-const FIRE_EVERY = 0.085; // seconds between shots
+const FIRE_EVERY = 0.06; // seconds between shots
 const COMBO_WINDOW = 1.2; // seconds between kills that keep a combo going
 const CHAIN_WINDOW = 0.9; // seconds between launches that count as a chain launch
 const HULL_DAMAGE = 14; // shield points per second while the wave touches it
-const GRACE = 3; // seconds before the wave starts closing in
+const GRACE = 4; // seconds before the wave starts closing in
+const HEAD = "Orbitron, 'Exo 2', system-ui, sans-serif";
+
+// ---------- easing ----------
+const clamp01 = (v) => Math.max(0, Math.min(1, v));
+const easeOutCubic = (k) => 1 - Math.pow(1 - k, 3);
+const easeInQuad = (k) => k * k;
+const easeOutBack = (k, s = 1.8) => 1 + (s + 1) * Math.pow(k - 1, 3) + s * Math.pow(k - 1, 2);
+const lerp = (a, b, k) => a + (b - a) * k;
+function lerpAngle(a, b, k) {
+  let d = b - a;
+  while (d > Math.PI) d -= Math.PI * 2;
+  while (d < -Math.PI) d += Math.PI * 2;
+  return a + d * k;
+}
 
 // ---------- saved progress (per phone) ----------
 const SAVE_KEY = "sifiship.v1";
-let save = { level: 1, best: 0, stars: {}, sound: true, vibrate: true, boost: { bay: 2, undo: 3, radar: 3 } };
+const defaults = {
+  level: 1,
+  best: 0,
+  stars: {},
+  sound: true,
+  vibrate: true,
+  boost: { bay: 2, undo: 3, radar: 3 },
+  pilot: { level: 1, xp: 0 },
+  skin: "interceptor",
+  streak: 0,
+};
+let save = { ...defaults };
 try {
   const stored = JSON.parse(localStorage.getItem(SAVE_KEY) || "{}");
-  save = { ...save, ...stored, boost: { ...save.boost, ...(stored.boost || {}) } };
+  save = { ...defaults, ...stored, boost: { ...defaults.boost, ...(stored.boost || {}) } };
+  // V.2 players had stars but no pilot level: credit their stars as XP once.
+  if (!stored.pilot) {
+    const total = Object.values(save.stars).reduce((a, b) => a + b, 0);
+    const { level, xp } = addXp(defaults.pilot, total * 60);
+    save.pilot = { level, xp };
+  }
 } catch {
   /* private mode or bad data: start fresh */
 }
@@ -27,145 +62,77 @@ function persist() {
     /* storage unavailable: progress lasts this session only */
   }
 }
-
-// ---------- sound (synthesized, no files) ----------
-let audio = null;
-let master = null;
-function initAudio() {
-  if (audio) return;
-  try {
-    audio = new (window.AudioContext || window.webkitAudioContext)();
-    master = audio.createGain();
-    master.gain.value = 0.35;
-    master.connect(audio.destination);
-  } catch {
-    audio = null;
-  }
-}
-function tone(freq, dur, type = "square", vol = 0.3, slideTo = null, delay = 0) {
-  if (!audio || !save.sound) return;
-  const t0 = audio.currentTime + delay;
-  const o = audio.createOscillator();
-  const g = audio.createGain();
-  o.type = type;
-  o.frequency.setValueAtTime(freq, t0);
-  if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, t0 + dur);
-  g.gain.setValueAtTime(vol, t0);
-  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-  o.connect(g).connect(master);
-  o.start(t0);
-  o.stop(t0 + dur + 0.02);
-}
-let noiseBuf = null;
-function noise(dur, vol = 0.3, freq = 900) {
-  if (!audio || !save.sound) return;
-  if (!noiseBuf) {
-    noiseBuf = audio.createBuffer(1, audio.sampleRate * 0.6, audio.sampleRate);
-    const d = noiseBuf.getChannelData(0);
-    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
-  }
-  const t0 = audio.currentTime;
-  const src = audio.createBufferSource();
-  src.buffer = noiseBuf;
-  const f = audio.createBiquadFilter();
-  f.type = "lowpass";
-  f.frequency.setValueAtTime(freq, t0);
-  f.frequency.exponentialRampToValueAtTime(80, t0 + dur);
-  const g = audio.createGain();
-  g.gain.setValueAtTime(vol, t0);
-  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-  src.connect(f).connect(g).connect(master);
-  src.start(t0);
-  src.stop(t0 + dur);
-}
-let lastBoom = 0;
-const sfx = {
-  pew: () => tone(1100 + Math.random() * 200, 0.07, "square", 0.08, 300),
-  boom: () => {
-    const now = performance.now();
-    if (now - lastBoom < 60) return;
-    lastBoom = now;
-    noise(0.18, 0.22, 1400);
-  },
-  launch: () => {
-    tone(180, 0.32, "sawtooth", 0.12, 900);
-    noise(0.3, 0.08, 3000);
-  },
-  dock: () => tone(520, 0.08, "triangle", 0.18, 780),
-  thunk: () => {
-    tone(140, 0.1, "sine", 0.4, 70);
-    noise(0.06, 0.15, 500);
-  },
-  warp: () => tone(300, 0.35, "sine", 0.15, 2400),
-  error: () => {
-    tone(220, 0.12, "square", 0.12);
-    tone(160, 0.16, "square", 0.12, null, 0.12);
-  },
-  alarm: () => {
-    tone(880, 0.14, "square", 0.07);
-    tone(620, 0.14, "square", 0.07, null, 0.16);
-  },
-  combo: (m) => tone(500 + m * 120, 0.18, "triangle", 0.2, 900 + m * 200),
-  hit: () => noise(0.25, 0.3, 600),
-  win: () => [523, 659, 784, 1047, 1319].forEach((f, i) => tone(f, 0.25, "triangle", 0.22, null, i * 0.09)),
-  lose: () => [392, 330, 262, 196].forEach((f, i) => tone(f, 0.3, "sawtooth", 0.13, null, i * 0.16)),
-  click: () => tone(700, 0.05, "triangle", 0.15),
-};
-
-function buzz(kind) {
-  if (!save.vibrate) return;
-  try {
-    if (window.AndroidBridge) window.AndroidBridge.haptic(kind);
-    else if (navigator.vibrate) navigator.vibrate(kind === "tick" ? 12 : 40);
-  } catch {
-    /* no haptics */
-  }
-}
+bindSettings(save);
+const totalStars = () => Object.values(save.stars).reduce((a, b) => a + b, 0);
 
 // ---------- layout ----------
 const L = {};
 function layout() {
   const dpr = Math.min(window.devicePixelRatio || 1, 3);
+  setDpr(dpr);
+  L.dpr = dpr;
   L.W = window.innerWidth;
   L.H = window.innerHeight;
   canvas.width = Math.round(L.W * dpr);
   canvas.height = Math.round(L.H * dpr);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  L.hudH = 62;
+  L.hudH = 66;
   L.enemyTop = L.hudH + 4;
-  // The hangar gets the room first: the enemy zone takes 19% of the height (100-200 px).
-  L.shieldY = L.enemyTop + Math.min(200, Math.max(100, L.H * 0.19));
+  L.shieldY = L.enemyTop + Math.min(170, Math.max(86, L.H * 0.15));
   L.slots = BAYS + EXTRA_BAYS;
   L.bayGap = 6;
-  L.bayW = Math.min((L.W - 32 - (L.slots - 1) * L.bayGap) / L.slots, 64);
-  L.bayH = L.bayW * 1.15;
-  L.bayTop = L.shieldY + 12;
+  L.bayW = Math.min((L.W - 28 - (L.slots - 1) * L.bayGap) / L.slots, 60);
+  L.bayH = L.bayW * 1.12;
+  L.bayTop = L.shieldY + 10;
   L.bayY = L.bayTop + L.bayH / 2;
-  L.gridTop = L.bayTop + L.bayH + 30;
-  L.boostH = 66; // booster bar at the bottom
+  L.gridTop = L.bayTop + L.bayH + 24;
+  L.boostH = 66;
+  L.perRow = 9;
+  L.sx = Math.min((L.W - 30) / L.perRow, 40);
+  L.rowH = L.sx * 0.72;
+  L.enemyR = L.sx * 0.42;
   if (G.cfg) placeGrid();
-  L.perRow = 7;
-  L.sx = Math.min((L.W - 36) / L.perRow, 46);
-  L.rowH = L.sx * 0.78;
+  stars.forEach((s) => (s.x = Math.random() * L.W));
 }
 function placeGrid() {
   const { cols, rows } = G.cfg;
-  const availH = L.H - L.gridTop - L.boostH - 6;
-  L.cell = Math.floor(Math.min((L.W - 24) / cols, availH / rows));
-  L.gx = (L.W - L.cell * cols) / 2;
-  L.gy = L.gridTop + Math.max(0, (availH - L.cell * rows) / 2);
+  const frame = 10;
+  const availH = L.H - L.gridTop - L.boostH - frame * 2 - 4;
+  L.cell = Math.max(14, Math.floor(Math.min((L.W - 16 - frame * 2) / cols, availH / rows)));
+  L.gx = Math.round((L.W - L.cell * cols) / 2);
+  L.gy = Math.round(L.gridTop + frame + Math.max(0, (availH - L.cell * rows) / 2));
+  // Sprite sizes: a rocket in the hangar, and the same rocket on a landing pad.
+  L.shipW = L.cell * 0.8;
 }
 const bayX = (i) => L.W / 2 + (i - (L.slots - 1) / 2) * (L.bayW + L.bayGap);
+const gridLen = (s) => s.len * L.cell - L.cell * 0.12;
+const padLen = (s) => L.bayH * (0.74 + 0.06 * (s.len - 2));
+const padWid = () => L.bayW * 0.56;
 
 // ---------- game state ----------
 const G = { phase: "menu", t: 0 };
-const fx = { particles: [], beams: [], rings: [], texts: [], warps: [], shake: 0, flash: 0 };
+const fx = { particles: [], beams: [], rings: [], texts: [], flashes: [], warps: [], shake: 0, flash: 0 };
+const levelCache = new Map();
+function getLevel(n) {
+  if (!levelCache.has(n)) levelCache.set(n, generateLevel(n));
+  return levelCache.get(n);
+}
 
 function startLevel(n) {
-  const lv = generateLevel(n);
+  const lv = getLevel(n);
+  levelCache.delete(n - 1);
   G.n = n;
   G.cfg = lv.cfg;
-  G.ships = lv.ships.map((s) => ({ ...s, state: "grid", anim: null, flash: 0, bob: Math.random() * 6 }));
+  G.ships = lv.ships.map((s) => ({
+    ...s,
+    state: "grid",
+    anim: null,
+    flash: 0,
+    wob: 0,
+    trail: [],
+    // Deploy: rockets drop into the hangar row by row when the sector opens.
+    deploy: (s.y / lv.cfg.rows) * 0.5 + Math.random() * 0.12,
+  }));
   G.queue = lv.queue;
   G.solution = lv.order;
   G.q = 0;
@@ -176,6 +143,7 @@ function startLevel(n) {
   G.score = 0;
   G.streak = 0;
   G.mult = 1;
+  G.maxMult = 1;
   G.lastKill = -9;
   G.chain = 0;
   G.lastLaunch = -9;
@@ -187,24 +155,20 @@ function startLevel(n) {
   G.playTime = 0;
   G.alert = false;
   G.result = null;
+  G.start = G.t;
   G.lastTap = G.t;
-  G.launched = []; // ship ids in launch order, for Undo
+  G.launched = [];
   G.launches = 0;
   G.hintId = -1;
   G.hintUntil = 0;
-  G.usedBoost = false;
-  G.reward = null;
+  G.pendingLoss = false;
   refreshOcc();
   placeGrid();
-  fx.particles = [];
-  fx.beams = [];
-  fx.rings = [];
-  fx.texts = [];
-  fx.warps = [];
+  for (const k of Object.keys(fx)) if (Array.isArray(fx[k])) fx[k] = [];
   G.phase = "play";
   showOnly(null);
   syncBoosts();
-  floatText(lv.cfg.boss ? "⚠ BOSS WAVE" : `SECTOR ${n}`, L.W / 2, L.shieldY - 40, lv.cfg.boss ? "#ff3b5c" : "#22e4ff", 30, 1.6);
+  sfx.launch();
 }
 
 function refreshOcc() {
@@ -214,8 +178,9 @@ function refreshOcc() {
     G.cfg.rows,
   );
 }
+const inHangar = () => G.ships.filter((s) => s.state === "grid" || s.state === "bounce" || s.state === "press").length;
 
-// ---------- geometry helpers ----------
+// ---------- geometry ----------
 const dirAngle = { right: 0, down: Math.PI / 2, left: Math.PI, up: -Math.PI / 2 };
 function shipCenter(s) {
   const horizontal = s.dir === "left" || s.dir === "right";
@@ -224,7 +189,7 @@ function shipCenter(s) {
   return [L.gx + (s.x + w / 2) * L.cell, L.gy + (s.y + h / 2) * L.cell];
 }
 function enemySlotPos(slot) {
-  const frontY = L.shieldY - 16 - (1 - G.threat) * L.rowH * 2.2;
+  const frontY = L.shieldY - 14 - (1 - G.threat) * L.rowH * 1.6;
   const at = (k) => {
     const r = Math.floor(k / L.perRow);
     const c = k % L.perRow;
@@ -240,49 +205,128 @@ function enemySlotPos(slot) {
 }
 
 // ---------- effects ----------
-function burst(x, y, color, n = 14, speed = 160, size = 3) {
+function sparks(x, y, color, n = 12, speed = 220) {
   for (let i = 0; i < n; i++) {
     const a = Math.random() * Math.PI * 2;
     const v = speed * (0.3 + Math.random());
-    fx.particles.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 0, max: 0.4 + Math.random() * 0.5, color, size: size * (0.5 + Math.random()) });
+    fx.particles.push({ kind: "spark", x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 0, max: 0.25 + Math.random() * 0.35, color });
   }
 }
-function floatText(text, x, y, color = "#fff", size = 22, life = 1) {
-  const margin = Math.min(L.W / 2, text.length * size * 0.36);
-  fx.texts.push({ text, x: Math.max(margin, Math.min(L.W - margin, x)), y, color, size, t: 0, life });
+function debris(x, y, color, n = 6, speed = 140) {
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const v = speed * (0.4 + Math.random());
+    fx.particles.push({
+      kind: "debris", x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 0, max: 0.5 + Math.random() * 0.4, color,
+      size: 2 + Math.random() * 3, rot: Math.random() * 6, vr: (Math.random() - 0.5) * 18,
+    });
+  }
 }
-function ring(x, y, color, maxR = 40) {
-  fx.rings.push({ x, y, color, t: 0, maxR });
+function flashAt(x, y, color, r, life = 0.25) {
+  fx.flashes.push({ x, y, color, r, t: 0, life });
+}
+function ring(x, y, color, maxR = 40, life = 0.4, width = 2.5) {
+  fx.rings.push({ x, y, color, t: 0, maxR, life, width });
+}
+/** Floating text; a `key` replaces the previous text with that key instead of stacking on it. */
+function floatText(text, x, y, color = "#fff", size = 22, life = 1, key = null) {
+  const margin = Math.min(L.W / 2, text.length * size * 0.42);
+  if (key) fx.texts = fx.texts.filter((t) => t.key !== key);
+  fx.texts.push({ text, x: Math.max(margin, Math.min(L.W - margin, x)), y, color, size, t: 0, life, key });
+}
+function explode(x, y, colorIndex, big = false) {
+  const c = COLORS[colorIndex];
+  flashAt(x, y, c.main, L.enemyR * (big ? 4 : 2.6), 0.3);
+  ring(x, y, c.glow, L.enemyR * (big ? 4 : 2.2), 0.35, 2);
+  sparks(x, y, c.glow, big ? 26 : 10, big ? 320 : 200);
+  debris(x, y, c.main, big ? 14 : 5);
 }
 
 // ---------- input ----------
 canvas.addEventListener("pointerdown", (e) => {
   if (G.phase !== "play") return;
   initAudio();
-  // The locked sixth bay opens with the +1 bay booster.
   const lx = bayX(L.slots - 1);
   if (G.bays.length < L.slots && Math.abs(e.clientX - lx) < L.bayW / 2 && Math.abs(e.clientY - L.bayY) < L.bayH / 2) {
     spendBoost("bay");
     return;
   }
-  const cx = Math.floor((e.clientX - L.gx) / L.cell);
-  const cy = Math.floor((e.clientY - L.gy) / L.cell);
-  if (cx < 0 || cy < 0 || cx >= G.cfg.cols || cy >= G.cfg.rows) return;
-  const id = G.occ[cy][cx];
+  const id = shipAt(e.clientX, e.clientY);
   if (id !== -1) tapShip(id);
 });
 
+/** The rocket under a touch; a touch on an empty cell picks the nearest rocket within ~0.7 cell. */
+function shipAt(px, py) {
+  const cx = Math.floor((px - L.gx) / L.cell);
+  const cy = Math.floor((py - L.gy) / L.cell);
+  const inGrid = (x, y) => x >= 0 && y >= 0 && x < G.cfg.cols && y < G.cfg.rows;
+  if (inGrid(cx, cy) && G.occ[cy][cx] !== -1) return G.occ[cy][cx];
+  let best = -1;
+  let bestD = L.cell * 0.7;
+  for (let y = cy - 1; y <= cy + 1; y++)
+    for (let x = cx - 1; x <= cx + 1; x++) {
+      if (!inGrid(x, y) || G.occ[y][x] === -1) continue;
+      const d = Math.hypot(px - (L.gx + (x + 0.5) * L.cell), py - (L.gy + (y + 0.5) * L.cell));
+      if (d < bestD) {
+        bestD = d;
+        best = G.occ[y][x];
+      }
+    }
+  return best;
+}
+
+function tapShip(id) {
+  const s = G.ships[id];
+  if (!s || s.state !== "grid" || G.t - G.start < 0.35) return false;
+  G.lastTap = G.t;
+  const block = blocker(s, G.occ, G.cfg.cols, G.cfg.rows);
+  if (block) {
+    s.state = "bounce";
+    s.anim = { t: 0, dist: block.distance * L.cell + L.cell * 0.22, hit: false, blocker: block.id };
+    sfx.press();
+    return false;
+  }
+  const bay = G.bays.indexOf(null);
+  if (bay === -1) {
+    sfx.error();
+    buzz("long");
+    fx.shake = Math.max(fx.shake, 5);
+    floatText("PADS FULL", L.W / 2, L.bayY, "#ff3b5c", 20, 0.9, "full");
+    G.bayShake = 0.35;
+    return false;
+  }
+  G.bays[bay] = { ship: id, color: s.color, ammo: s.cap, ready: false, recoil: 0, ang: -Math.PI / 2, aimUntil: 0, pop: 0 };
+  G.peak = Math.max(G.peak, G.bays.filter(Boolean).length);
+  // Anticipation: a quick squash before the burn.
+  s.state = "press";
+  s.anim = { t: 0, bay };
+  refreshOcc();
+  G.launched.push(id);
+  G.launches++;
+  G.hintId = -1;
+  sfx.press();
+  buzz("tick");
+  if (G.t - G.lastLaunch < CHAIN_WINDOW) {
+    G.chain++;
+    const [x, y] = shipCenter(s);
+    floatText(`CHAIN x${G.chain}`, x, y - 20, "#ffc23a", 16 + Math.min(G.chain, 8) * 2, 0.9, "chain");
+    G.score += 25 * G.chain;
+  } else G.chain = 1;
+  G.lastLaunch = G.t;
+  return true;
+}
+
 // ---------- boosters ----------
 const BOOSTS = {
-  bay: { label: "+1 BAY", icon: "⊕" },
-  undo: { label: "UNDO", icon: "↶" },
-  radar: { label: "RADAR", icon: "◎" },
+  bay: { label: "Extra pad", icon: "⊕" },
+  undo: { label: "Undo", icon: "↶" },
+  radar: { label: "Radar", icon: "◎" },
 };
 function canBoost(kind) {
   if (G.phase !== "play" || save.boost[kind] <= 0) return false;
   if (kind === "bay") return G.bays.length < L.slots;
   if (kind === "undo") return undoTarget() !== -1;
-  if (kind === "radar") return G.ships.some((s) => s.state === "grid");
+  if (kind === "radar") return inHangar() > 0;
   return false;
 }
 /** The last launched rocket that is docked and has not fired yet (it can go back to the hangar). */
@@ -302,31 +346,31 @@ function spendBoost(kind) {
     return false;
   }
   save.boost[kind]--;
-  G.usedBoost = true;
   persist();
   if (kind === "bay") {
     G.bays.push(null);
     const x = bayX(G.bays.length - 1);
-    ring(x, L.bayY, "#ffc23a", L.bayW);
-    burst(x, L.bayY, "#ffc23a", 24, 180, 3);
-    floatText("BAY UNLOCKED", x, L.bayY - L.bayH * 0.7, "#ffc23a", 18, 1);
+    ring(x, L.bayY, "#ffc23a", L.bayW, 0.5, 3);
+    sparks(x, L.bayY, "#ffc23a", 24, 220);
+    floatText("PAD ONLINE", x, L.bayY - L.bayH * 0.75, "#ffc23a", 16, 1);
   } else if (kind === "undo") {
     const i = undoTarget();
     const s = G.ships[G.bays[i].ship];
     G.bays[i] = null;
     G.launched.splice(G.launched.lastIndexOf(s.id), 1);
     s.state = "grid";
+    s.deploy = 0;
+    s.wob = 0.4;
     refreshOcc();
     const [x, y] = shipCenter(s);
-    ring(x, y, COLORS[s.color].glow, L.cell * s.len * 0.7);
-    ring(bayX(i), L.bayY, "#ffffff", L.bayW * 0.6);
+    ring(x, y, COLORS[s.color].glow, L.cell * s.len * 0.7, 0.45);
+    flashAt(bayX(i), L.bayY, "#ffffff", L.bayW * 0.8);
   } else if (kind === "radar") {
-    const inGrid = G.ships.filter((s) => s.state === "grid");
-    const hint = radarHint(inGrid, G.queue, G.q, G.bays, G.cfg.cols, G.cfg.rows);
+    const hint = radarHint(G.ships.filter((s) => s.state === "grid"), G.queue, G.q, G.bays, G.cfg.cols, G.cfg.rows);
     G.hintId = hint ? hint.id : -1;
     G.hintUntil = G.t + 4;
   }
-  tone(660, 0.12, "triangle", 0.2, 1320);
+  sfx.unlock();
   buzz("tick");
   syncBoosts();
   return true;
@@ -338,74 +382,52 @@ function syncBoosts() {
     el.classList.toggle("off", !canBoost(kind));
   }
 }
-
-function tapShip(id) {
-  const s = G.ships[id];
-  if (!s || s.state !== "grid") return false;
-  G.lastTap = G.t;
-  const block = blocker(s, G.occ, G.cfg.cols, G.cfg.rows);
-  if (block) {
-    s.state = "bounce";
-    s.anim = { t: 0, dur: 0.3, dist: block.distance * L.cell + L.cell * 0.2 };
-    G.ships[block.id].flash = 0.5;
-    sfx.thunk();
-    buzz("tick");
-    return false;
-  }
-  const bay = G.bays.indexOf(null);
-  if (bay === -1) {
-    sfx.error();
-    buzz("long");
-    fx.shake = Math.max(fx.shake, 5);
-    floatText("BAYS FULL", L.W / 2, L.bayY, "#ff3b5c", 20, 0.9);
-    G.bayShake = 0.35;
-    return false;
-  }
-  G.bays[bay] = { ship: id, color: s.color, ammo: s.cap, ready: false, recoil: 0 };
-  G.peak = Math.max(G.peak, G.bays.filter(Boolean).length);
-  s.state = "fly";
-  s.anim = { t: 0, phase: 1, off: 0, v: L.cell * 6, bay };
-  G.launched.push(id);
-  G.launches++;
-  G.hintId = -1;
-  refreshOcc();
-  sfx.launch();
-  buzz("tick");
-  // Chain launch: several quick launches in a row.
-  if (G.t - G.lastLaunch < CHAIN_WINDOW) {
-    G.chain++;
-    const [x, y] = shipCenter(s);
-    floatText(`CHAIN x${G.chain}`, x, y - 20, "#ffc23a", 18 + G.chain * 2, 0.9);
-    G.score += 25 * G.chain;
-  } else G.chain = 1;
-  G.lastLaunch = G.t;
-  return true;
-}
+for (const kind of Object.keys(BOOSTS))
+  $("boost-" + kind).addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    initAudio();
+    spendBoost(kind);
+  });
 
 // ---------- update ----------
 function update(dt) {
   G.t += dt;
   updateFx(dt);
-  if (!G.cfg || G.phase === "menu" || G.phase === "pause") return;
+  // Only a sector in play (or finishing) moves; every screen on top of it freezes it. (Letting the loop run
+  // under the win screen re-detected the cleared wave and replayed the win forever.)
+  if (!G.cfg || (G.phase !== "play" && G.phase !== "ending")) return;
 
   for (const s of G.ships) {
     s.flash = Math.max(0, s.flash - dt);
-    if (s.state === "bounce") {
+    s.wob = Math.max(0, s.wob - dt);
+    if (s.state === "bounce") updateBounce(s, dt);
+    else if (s.state === "press") {
       s.anim.t += dt;
-      if (s.anim.t >= s.anim.dur) {
-        s.state = "grid";
-        s.anim = null;
+      if (s.anim.t >= 0.08) {
+        s.state = "fly";
+        s.anim = { t: 0, phase: 1, off: 0, v: L.cell * 7, bay: s.anim.bay };
+        sfx.launch();
       }
     } else if (s.state === "fly") updateFlight(s, dt);
+    else if (s.state === "dock") {
+      s.anim.t += dt;
+      if (s.anim.t >= 0.3) s.state = "bay";
+    }
   }
-  for (const b of G.bays) if (b) b.recoil = Math.max(0, b.recoil - dt * 6);
+  for (const b of G.bays)
+    if (b) {
+      b.recoil = Math.max(0, b.recoil - dt * 7);
+      b.pop = Math.max(0, b.pop - dt * 4);
+      const want = G.t < b.aimUntil ? b.aim : -Math.PI / 2;
+      b.ang = lerpAngle(b.ang, want, Math.min(1, dt * 16));
+    }
+  G.bayShake = Math.max(0, (G.bayShake || 0) - dt);
+  G.qAnim += (G.q - G.qAnim) * Math.min(1, dt * 9);
   G.boostSync = (G.boostSync || 0) - dt;
   if (G.boostSync <= 0) {
     syncBoosts();
     G.boostSync = 0.2;
   }
-  G.bayShake = Math.max(0, (G.bayShake || 0) - dt);
-  G.qAnim += (G.q - G.qAnim) * Math.min(1, dt * 9);
 
   if (G.phase === "ending") {
     G.endTimer -= dt;
@@ -414,7 +436,6 @@ function update(dt) {
   }
   G.playTime += dt;
 
-  // Fire at the front of the wave.
   G.fireTimer += dt;
   while (G.fireTimer >= FIRE_EVERY && G.q < G.queue.length) {
     const i = pickShooter(G.bays, G.queue[G.q]);
@@ -430,15 +451,15 @@ function update(dt) {
 
   if (G.q >= G.queue.length) return end("win");
 
-  // The wave closes in; kills push it back (in kill()).
   if (G.cfg.creep > 0 && G.playTime > GRACE) {
     G.threat = Math.min(1, G.threat + G.cfg.creep * dt);
     if (G.threat >= 1) {
       G.hull -= HULL_DAMAGE * dt;
       fx.shake = Math.max(fx.shake, 3);
       if (Math.random() < dt * 14) {
-        const x = L.W / 2 + (Math.random() - 0.5) * L.W * 0.8;
-        burst(x, L.shieldY, "#ff3b5c", 6, 120, 2.5);
+        const x = L.W / 2 + (Math.random() - 0.5) * L.W * 0.85;
+        sparks(x, L.shieldY, "#ff3b5c", 6, 150);
+        flashAt(x, L.shieldY, "#ff3b5c", 26, 0.2);
       }
       if (Math.random() < dt * 3) sfx.hit();
       if (G.hull <= 0) {
@@ -448,10 +469,9 @@ function update(dt) {
     }
   }
 
-  // Jammed: every bay holds a docked ship and none of them can shoot the front enemy.
   const front = G.queue[G.q];
   const allDocked = G.bays.every((b) => b && b.ready);
-  const anyFlying = G.ships.some((s) => s.state === "fly");
+  const anyFlying = G.ships.some((s) => s.state === "fly" || s.state === "press");
   if (allDocked && !anyFlying && pickShooter(G.bays, front) === -1) {
     G.jamTimer += dt;
     if (G.jamTimer > 0.6) return end("jam");
@@ -470,34 +490,68 @@ function update(dt) {
   } else G.alarmTimer = 0;
 }
 
+/** Blocked: surge forward to the blocker, hit it (sparks, its wobble), spring back with a small overshoot. */
+function updateBounce(s, dt) {
+  const a = s.anim;
+  a.t += dt;
+  if (!a.hit && a.t >= 0.11) {
+    a.hit = true;
+    const [x, y] = shipCenter(s);
+    const [dx, dy] = DIRS[s.dir];
+    const nose = gridLen(s) / 2 + a.dist;
+    sparks(x + dx * nose, y + dy * nose, "#ffd28a", 10, 160);
+    flashAt(x + dx * nose, y + dy * nose, "#ffb347", L.cell * 0.7, 0.18);
+    const b = G.ships[a.blocker];
+    b.flash = 0.5;
+    b.wob = 0.35;
+    sfx.thunk();
+    buzz("tick");
+  }
+  if (a.t >= 0.45) {
+    s.state = "grid";
+    s.anim = null;
+  }
+}
+function bounceOffset(s) {
+  const a = s.anim;
+  if (a.t < 0.11) return a.dist * easeInQuad(a.t / 0.11);
+  const k = clamp01((a.t - 0.11) / 0.34);
+  // spring back: 1 → slightly below 0 → 0
+  return a.dist * (1 - easeOutBack(k, 2.2));
+}
+
 function updateFlight(s, dt) {
   const a = s.anim;
   a.t += dt;
+  const pose = flightPose(s);
+  s.trail.push([pose.x, pose.y]);
+  if (s.trail.length > 16) s.trail.shift();
   if (a.phase === 1) {
-    a.v += L.cell * 40 * dt;
+    a.v += L.cell * 70 * dt;
     a.off += a.v * dt;
     const [cx, cy] = shipCenter(s);
     const [dx, dy] = DIRS[s.dir];
     const x = cx + dx * a.off;
     const y = cy + dy * a.off;
-    const half = (s.len * L.cell) / 2;
-    if (x < L.gx - half || x > L.gx + L.cell * G.cfg.cols + half || y < L.gy - half || y > L.gy + L.cell * G.cfg.rows + half) {
+    const half = gridLen(s) / 2;
+    const out = x < L.gx - half || x > L.gx + L.cell * G.cfg.cols + half || y < L.gy - half || y > L.gy + L.cell * G.cfg.rows + half;
+    if (out) {
       a.phase = 2;
       a.t = 0;
       a.p0 = [x, y];
-      a.c = [x + dx * L.cell * 2.5, y + dy * L.cell * 2.5 - L.cell * 2];
+      a.c = [x + dx * L.cell * 3, Math.min(y + dy * L.cell * 3, L.bayY + L.bayH) - L.cell * 2];
     }
-    if (Math.random() < 0.8) burst(x - dx * half, y - dy * half, COLORS[s.color].glow, 1, 40, 2.5);
-  } else {
-    const k = Math.min(1, a.t / 0.42);
-    if (k >= 1) {
-      s.state = "bay";
-      s.anim = null;
-      const bay = G.bays[a.bay];
-      bay.ready = true;
-      ring(bayX(a.bay), L.bayY, COLORS[s.color].main, L.bayW * 0.7);
-      sfx.dock();
-    }
+  } else if (a.t >= 0.42) {
+    s.state = "dock";
+    s.anim = { t: 0 };
+    s.trail = [];
+    const bay = G.bays[a.bay];
+    bay.ready = true;
+    const x = bayX(a.bay);
+    ring(x, L.bayY, COLORS[s.color].main, L.bayW * 0.75, 0.4, 3);
+    flashAt(x, L.bayY, COLORS[s.color].glow, L.bayW * 0.9, 0.25);
+    sparks(x, L.bayY + L.bayH * 0.3, COLORS[s.color].glow, 8, 120);
+    sfx.dock();
   }
 }
 
@@ -505,31 +559,36 @@ function flightPose(s) {
   const a = s.anim;
   const [cx, cy] = shipCenter(s);
   const [dx, dy] = DIRS[s.dir];
-  if (a.phase === 1) return { x: cx + dx * a.off, y: cy + dy * a.off, ang: dirAngle[s.dir], scale: 0 };
-  const k = Math.min(1, a.t / 0.42);
-  const e = 1 - Math.pow(1 - k, 3);
+  if (a.phase === 1) return { x: cx + dx * a.off, y: cy + dy * a.off, ang: dirAngle[s.dir], k: 0 };
+  const k = clamp01(a.t / 0.42);
+  const e = easeOutCubic(k);
   const p2 = [bayX(a.bay), L.bayY];
   const u = 1 - e;
   const x = u * u * a.p0[0] + 2 * u * e * a.c[0] + e * e * p2[0];
   const y = u * u * a.p0[1] + 2 * u * e * a.c[1] + e * e * p2[1];
-  let from = dirAngle[s.dir];
-  let to = -Math.PI / 2;
-  let d = to - from;
-  while (d > Math.PI) d -= Math.PI * 2;
-  while (d < -Math.PI) d += Math.PI * 2;
-  return { x, y, ang: from + d * e, scale: e };
+  // Bank along the curve: heading follows the path's tangent, then settles nose-up on the pad.
+  const tx = 2 * u * (a.c[0] - a.p0[0]) + 2 * e * (p2[0] - a.c[0]);
+  const ty = 2 * u * (a.c[1] - a.p0[1]) + 2 * e * (p2[1] - a.c[1]);
+  const heading = Math.atan2(ty, tx);
+  const ang = lerpAngle(heading, -Math.PI / 2, easeInQuad(k));
+  return { x, y, ang, k: e };
 }
 
 function kill(bayIndex) {
   const b = G.bays[bayIndex];
-  const color = COLORS[b.color];
+  const s = G.ships[b.ship];
   const [ex, ey] = enemySlotPos(Math.max(0, G.q - G.qAnim));
-  const sx = bayX(bayIndex);
-  const sy = L.bayY - L.bayH * 0.42;
-  fx.beams.push({ x1: sx, y1: sy, x2: ex, y2: ey, t: 0, color: color.main, glow: color.glow });
-  burst(ex, ey, color.main, 12, 170, 3);
-  burst(ex, ey, "#ffffff", 4, 90, 2);
-  ring(ex, ey, color.glow, 22);
+  const bx = bayX(bayIndex);
+  const by = L.bayY;
+  b.aim = Math.atan2(ey - by, ex - bx);
+  b.aimUntil = G.t + 0.3;
+  const nose = padLen(s) * 0.5;
+  const nx = bx + Math.cos(b.ang) * nose;
+  const ny = by + Math.sin(b.ang) * nose;
+  const c = COLORS[b.color];
+  fx.beams.push({ x1: nx, y1: ny, x2: ex, y2: ey, t: 0, color: c.main, glow: c.glow });
+  flashAt(nx, ny, c.glow, L.bayW * 0.45, 0.12);
+  explode(ex, ey, b.color);
   sfx.pew();
   sfx.boom();
   G.q++;
@@ -538,42 +597,39 @@ function kill(bayIndex) {
   G.lastKill = G.t;
   const mult = Math.min(5, 1 + Math.floor(G.streak / 8));
   if (mult > G.mult) {
-    floatText(`COMBO x${mult}`, L.W / 2, L.shieldY - L.rowH * 2.5, "#ffc23a", 24 + mult * 3, 1);
+    floatText(`COMBO x${mult}`, L.W / 2, L.shieldY - L.rowH * 2.2, "#ffc23a", 22 + mult * 3, 1, "combo");
     sfx.combo(mult);
     buzz("tick");
   }
   G.mult = mult;
+  G.maxMult = Math.max(G.maxMult, mult);
   G.score += 10 * G.mult;
   b.ammo--;
   b.recoil = 1;
+  b.pop = 1;
   if (b.ammo <= 0) {
-    const s = G.ships[b.ship];
     s.state = "gone";
-    fx.warps.push({ x: sx, y: L.bayY, color: s.color, len: s.len, t: 0 });
+    fx.warps.push({ x: bx, y: by, color: s.color, len: s.len, t: 0 });
     G.bays[bayIndex] = null;
     sfx.warp();
-    buzz("tick");
   }
 }
 
 function end(result) {
   G.result = result;
   G.phase = "ending";
-  G.endTimer = result === "win" ? 1.1 : 0.9;
+  G.endTimer = result === "win" ? 1.3 : 0.9;
   G.alert = false;
   if (result === "win") {
     sfx.win();
     buzz("long");
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 7; i++)
       setTimeout(() => {
-        const x = L.W * (0.2 + Math.random() * 0.6);
-        const y = L.enemyTop + Math.random() * (L.shieldY - L.enemyTop);
-        burst(x, y, COLORS[Math.floor(Math.random() * COLORS.length)].main, 40, 260, 3.5);
-        ring(x, y, "#ffffff", 70);
+        const x = L.W * (0.15 + Math.random() * 0.7);
+        const y = L.enemyTop + 20 + Math.random() * (L.shieldY - L.enemyTop - 20);
+        explode(x, y, Math.floor(Math.random() * COLORS.length), true);
         sfx.boom();
-      }, i * 140);
-    }
-    if (G.cfg.boss) burst(L.W / 2, L.enemyTop + 40, "#ff3b5c", 120, 380, 4);
+      }, i * 130);
   } else {
     sfx.lose();
     buzz("long");
@@ -582,500 +638,582 @@ function end(result) {
   }
 }
 
+// ---------- results, XP and level-ups ----------
+let pendingLevels = [];
+
+function grantXp(amount) {
+  const before = { ...save.pilot };
+  const res = addXp(save.pilot, amount);
+  save.pilot = { level: res.level, xp: res.xp };
+  for (const lvl of res.gained) {
+    const r = levelRewards(lvl);
+    for (const [k, v] of Object.entries(r.boost)) save.boost[k] += v;
+  }
+  pendingLevels = pendingLevels.concat(res.gained);
+  persist();
+  return { before, after: { ...save.pilot }, gained: res.gained };
+}
+
 function finish() {
   if (G.result === "win") {
     const hullOk = G.hull >= 70;
     const baysOk = G.peak <= 3;
-    const stars = 1 + (hullOk ? 1 : 0) + (baysOk ? 1 : 0);
+    const starsWon = 1 + (hullOk ? 1 : 0) + (baysOk ? 1 : 0);
     const before = save.stars[G.n] || 0;
-    const rankBefore = rankOf(totalStars());
-    // Rewards come once per sector: first 3 stars, first boss clear, and every 5th sector cleared.
-    const reward = {};
-    const add = (k, v = 1) => (reward[k] = (reward[k] || 0) + v);
-    if (stars === 3 && before < 3) add(["bay", "undo", "radar"][G.n % 3]);
-    if (!before && G.cfg.boss) ["bay", "undo", "radar"].forEach((k) => add(k));
-    if (!before && G.n % 5 === 0) add("radar");
-    for (const k of Object.keys(reward)) save.boost[k] += reward[k];
-    save.stars[G.n] = Math.max(before, stars);
+    save.streak += 1;
+    const xp = winXp({ sector: G.n, stars: starsWon, firstClear: !before, boss: G.cfg.boss, maxCombo: G.maxMult, streak: save.streak });
+    save.stars[G.n] = Math.max(before, starsWon);
     save.level = Math.max(save.level, G.n + 1);
-    const rankAfter = rankOf(totalStars());
     const best = G.score > save.best;
     save.best = Math.max(save.best, G.score);
-    persist();
+    const gain = grantXp(xp.total);
     G.phase = "win";
     showOnly("win");
+    $("winTitle").textContent = G.cfg.boss ? "BOSS DESTROYED" : "SECTOR CLEARED";
     const spans = $("stars").children;
     for (let i = 0; i < 3; i++) {
       spans[i].className = "";
       setTimeout(() => {
-        spans[i].className = i < stars ? "on" : "off";
-        if (i < stars) {
-          tone(880 + i * 220, 0.16, "triangle", 0.2);
+        if (G.phase !== "win") return;
+        spans[i].className = i < starsWon ? "on" : "off";
+        if (i < starsWon) {
+          sfx.star(i);
           buzz("tick");
         }
-      }, 250 + i * 280);
+      }, 300 + i * 300);
     }
     $("goals").innerHTML =
       `<div class="done">Sector cleared</div>` +
       `<div class="${hullOk ? "done" : ""}">Shield above 70% (${Math.round(G.hull)}%)</div>` +
-      `<div class="${baysOk ? "done" : ""}">Never more than 3 bays in use (${G.peak})</div>`;
-    animateNumber($("winScore"), G.score);
-    $("winBest").textContent = best ? "New best score!" : `Best: ${save.best.toLocaleString()}`;
-    const got = Object.entries(reward).map(([k, v]) => `+${v} ${BOOSTS[k].label}`);
-    $("winReward").textContent = got.length ? `Reward: ${got.join(" · ")}` : "";
-    $("winRank").innerHTML = rankHtml(rankAfter.name !== rankBefore.name);
-    if (rankAfter.name !== rankBefore.name) setTimeout(() => sfx.combo(5), 1200);
+      `<div class="${baysOk ? "done" : ""}">Never more than 3 pads in use (${G.peak})</div>`;
+    countUp($("winScore"), G.score, 900);
+    $("winBest").innerHTML = best ? `<span class="badge-new">NEW BEST</span>` : `Best ${save.best.toLocaleString()}`;
+    const parts = xp.parts.map((p) => `<span><b>+${p.xp}</b> ${p.label}</span>`);
+    if (xp.mult > 1) parts.push(`<span><b>×${xp.mult.toFixed(1)}</b> win streak</span>`);
+    $("xpParts").innerHTML = parts.join("");
+    [...$("xpParts").children].forEach((el, i) => (el.style.animationDelay = `${1.2 + i * 0.12}s`));
+    $("winChips").innerHTML = save.streak > 1 ? `<span class="chip fire">🔥 ${save.streak} WIN STREAK</span>` : "";
+    animateXp(gain, xp.total, 1300);
+    // Build the next sector while the player reads the results.
+    setTimeout(() => {
+      if (G.phase === "win" || G.phase === "levelup") getLevel(G.n + 1);
+    }, 2600);
   } else {
     G.phase = "lose";
+    G.pendingLoss = true;
     showOnly("lose");
-    // A jam can be rescued with a booster instead of a restart.
     const jam = G.result === "jam";
+    $("loseTitle").textContent = jam ? "HANGAR JAMMED" : "SHIELD DOWN";
+    const left = G.queue.length - G.q;
+    $("loseText").textContent = jam
+      ? `Every pad holds a rocket that can't hit the front saucer. ${left} saucers left. Rescue the run, or try again:`
+      : `The wave broke through with ${left} saucers left. Keep a rocket firing so the wave stays back.`;
+    const xp = lossXp({ sector: G.n, cleared: G.q / G.queue.length });
+    $("loseChips").innerHTML =
+      `<span class="chip gold">+${xp} XP banked</span>` + (save.streak > 1 ? `<span class="chip fire">🔥 ${save.streak} streak at risk</span>` : "");
     const canBay = jam && G.bays.length < L.slots && save.boost.bay > 0;
     const canUndo = jam && undoTarget() !== -1 && save.boost.undo > 0;
     $("contBay").style.display = canBay ? "" : "none";
-    $("contBay").textContent = `⊕ Open bay 6 · ${save.boost.bay} left`;
+    $("contBay").textContent = `⊕ Open pad 6 · ${save.boost.bay} left`;
     $("contUndo").style.display = canUndo ? "" : "none";
     $("contUndo").textContent = `↶ Undo last launch · ${save.boost.undo} left`;
-    $("loseTitle").textContent = G.result === "jam" ? "HANGAR JAMMED" : "SHIELD DOWN";
-    const left = G.queue.length - G.q;
-    $("loseText").textContent =
-      G.result === "jam"
-        ? `Every bay holds a rocket that can't hit the front enemy. ${left} enemies left. Launch the color the wave needs next, or rescue the run:`
-        : `The wave broke through with ${left} enemies left. Keep a rocket firing so the wave stays back.`;
   }
 }
 
-/** Back to the jammed sector, with a booster used to get out of it. */
+/** Leaving a lost sector banks its consolation XP and ends the win streak (a rescue keeps both open). */
+function settleLoss() {
+  if (!G.pendingLoss) return;
+  G.pendingLoss = false;
+  save.streak = 0;
+  grantXp(lossXp({ sector: G.n, cleared: G.q / G.queue.length }));
+}
+
 function continueWith(kind) {
   G.phase = "play";
   G.result = null;
   G.jamTimer = 0;
+  G.pendingLoss = false;
   fx.flash = 0;
   showOnly(null);
   spendBoost(kind);
 }
 
-// ---------- pilot rank (from all stars earned) ----------
-const RANKS = [
-  [0, "Cadet"],
-  [10, "Pilot"],
-  [25, "Ace"],
-  [50, "Captain"],
-  [90, "Commander"],
-  [150, "Admiral"],
-  [240, "Legend"],
-];
-function totalStars() {
-  return Object.values(save.stars).reduce((a, b) => a + b, 0);
-}
-function rankOf(stars) {
-  let i = 0;
-  while (i + 1 < RANKS.length && stars >= RANKS[i + 1][0]) i++;
-  const next = RANKS[i + 1];
-  return { name: RANKS[i][1], stars, from: RANKS[i][0], next: next ? next[0] : null, nextName: next ? next[1] : null };
-}
-function rankHtml(rankedUp) {
-  const r = rankOf(totalStars());
-  const pct = r.next ? ((r.stars - r.from) / (r.next - r.from)) * 100 : 100;
-  const to = r.next ? `${r.stars} / ${r.next} ★ to ${r.nextName}` : `${r.stars} ★ · top rank`;
-  return (
-    `<div class="rank${rankedUp ? " up" : ""}">${rankedUp ? "RANK UP · " : ""}${r.name.toUpperCase()}</div>` +
-    `<div class="bar"><i style="width:${pct.toFixed(1)}%"></i></div><div class="to">${to}</div>`
-  );
-}
-
-function animateNumber(el, to) {
+function countUp(el, to, ms) {
   const t0 = performance.now();
+  let lastTick = 0;
   const step = (now) => {
-    const k = Math.min(1, (now - t0) / 700);
-    el.textContent = Math.round(to * (1 - Math.pow(1 - k, 3))).toLocaleString();
+    const k = Math.min(1, (now - t0) / ms);
+    el.textContent = Math.round(to * easeOutCubic(k)).toLocaleString();
+    if (now - lastTick > 50 && k < 1) {
+      sfx.tick();
+      lastTick = now;
+    }
     if (k < 1) requestAnimationFrame(step);
   };
   requestAnimationFrame(step);
 }
 
+/** Fills the XP bar from before to after, rolling over at each level, then opens the level-up screen. */
+function animateXp(gain, total, delay) {
+  const bar = $("winXpBar");
+  const lvlEl = $("winLvl");
+  let level = gain.before.level;
+  const setLabels = (lv, xp) => {
+    lvlEl.textContent = lv;
+    $("winRank").textContent = `${rankFor(lv).name} · Lv ${lv}`;
+    $("winXpText").textContent = `${Math.round(xp)} / ${xpToNext(lv)} XP`;
+  };
+  setLabels(level, gain.before.xp);
+  bar.style.width = `${(gain.before.xp / xpToNext(level)) * 100}%`;
+  $("winXpGain").textContent = "+0 XP";
+  const segments = [];
+  let from = gain.before.xp;
+  for (const lv of gain.gained) {
+    segments.push({ level: lv - 1, from, to: xpToNext(lv - 1) });
+    from = 0;
+  }
+  segments.push({ level: gain.after.level, from, to: gain.after.xp });
+  let i = 0;
+  const run = () => {
+    if (G.phase !== "win") return;
+    if (i >= segments.length) {
+      if (pendingLevels.length) setTimeout(showLevelUp, 450);
+      return;
+    }
+    const seg = segments[i];
+    const need = xpToNext(seg.level);
+    const t0 = performance.now();
+    const ms = 500 + 500 * ((seg.to - seg.from) / need);
+    const step = (now) => {
+      if (G.phase !== "win") return;
+      const k = Math.min(1, (now - t0) / ms);
+      const xp = lerp(seg.from, seg.to, easeOutCubic(k));
+      bar.style.width = `${(xp / need) * 100}%`;
+      setLabels(seg.level, xp);
+      $("winXpGain").textContent = `+${Math.round(total * ((i + k) / segments.length))} XP`;
+      if (k < 1) return requestAnimationFrame(step);
+      if (i < segments.length - 1) {
+        // rolled over a level
+        level = seg.level + 1;
+        lvlEl.classList.remove("bump");
+        void lvlEl.offsetWidth;
+        lvlEl.classList.add("bump");
+        sfx.unlock();
+        buzz("tick");
+        bar.style.width = "0%";
+        setLabels(level, 0);
+      } else $("winXpGain").textContent = `+${total} XP`;
+      i++;
+      setTimeout(run, 120);
+    };
+    requestAnimationFrame(step);
+  };
+  setTimeout(run, delay);
+}
+
+let levelUpReturn = "win";
+function showLevelUp() {
+  if (!pendingLevels.length) return;
+  const lvl = pendingLevels.shift();
+  levelUpReturn = G.phase === "levelup" ? levelUpReturn : G.phase;
+  G.phase = "levelup";
+  showOnly("levelup");
+  const r = levelRewards(lvl);
+  $("luLevel").textContent = lvl;
+  $("luRank").textContent = r.rank ? `NEW RANK · ${r.rank.name.toUpperCase()}` : `${rankFor(lvl).name.toUpperCase()} · LEVEL ${lvl}`;
+  let html = "";
+  let d = 0.5;
+  for (const [k, v] of Object.entries(r.boost)) {
+    html += `<div class="reward glass" style="animation-delay:${d}s"><div class="ic">${BOOSTS[k].icon}</div><div class="nm">+${v} ${BOOSTS[k].label.toUpperCase()}</div></div>`;
+    d += 0.15;
+  }
+  if (r.skin)
+    html += `<div class="reward glass skin" style="animation-delay:${d}s"><canvas data-skin="${r.skin.id}" width="168" height="80"></canvas><div class="nm">NEW HULL · ${r.skin.name.toUpperCase()}</div></div>`;
+  $("luRewards").innerHTML = html;
+  for (const c of $("luRewards").querySelectorAll("canvas")) paintPreview(c, c.dataset.skin, 1);
+  sfx.levelUp();
+  buzz("long");
+}
+function closeLevelUp() {
+  if (pendingLevels.length) return showLevelUp();
+  // Back on the results: show the XP breakdown at once instead of replaying its entrance.
+  for (const el of $("xpParts").children) el.style.animationDelay = "0s";
+  G.phase = levelUpReturn;
+  showOnly(levelUpReturn);
+}
+
+/** Draws a hull into a small canvas (hangar list, level-up card). */
+function paintPreview(c, skin, colorIndex) {
+  const g = c.getContext("2d");
+  const r = window.devicePixelRatio || 1;
+  const w = c.clientWidth || c.width;
+  const h = c.clientHeight || c.height;
+  c.width = w * r;
+  c.height = h * r;
+  g.setTransform(r, 0, 0, r, 0, 0);
+  const spr = shipSprite(skin, colorIndex, w * 0.86, h * 0.8, false);
+  // The sprite cache paints at the game's pixel ratio; stamp it through the same helper.
+  drawSprite(g, spr, w / 2, h / 2, 0);
+}
+
+// ---------- fx update ----------
 function updateFx(dt) {
   for (const p of fx.particles) {
     p.life += dt;
     p.x += p.vx * dt;
     p.y += p.vy * dt;
-    p.vx *= 1 - dt * 2.5;
-    p.vy *= 1 - dt * 2.5;
+    const drag = p.kind === "debris" ? 1.8 : 3.2;
+    p.vx *= 1 - dt * drag;
+    p.vy *= 1 - dt * drag;
+    if (p.kind === "debris") p.rot += p.vr * dt;
   }
   fx.particles = fx.particles.filter((p) => p.life < p.max);
+  if (fx.particles.length > 600) fx.particles.splice(0, fx.particles.length - 600);
   for (const b of fx.beams) b.t += dt;
   fx.beams = fx.beams.filter((b) => b.t < 0.12);
   for (const r of fx.rings) r.t += dt;
-  fx.rings = fx.rings.filter((r) => r.t < 0.4);
+  fx.rings = fx.rings.filter((r) => r.t < r.life);
+  for (const f of fx.flashes) f.t += dt;
+  fx.flashes = fx.flashes.filter((f) => f.t < f.life);
   for (const t of fx.texts) t.t += dt;
   fx.texts = fx.texts.filter((t) => t.t < t.life);
   for (const w of fx.warps) w.t += dt;
-  fx.warps = fx.warps.filter((w) => w.t < 0.45);
+  fx.warps = fx.warps.filter((w) => w.t < 0.5);
   fx.shake = Math.max(0, fx.shake - dt * 30);
   fx.flash = Math.max(0, fx.flash - dt);
   for (const s of stars) {
     s.y += s.v * dt;
     if (s.y > L.H) {
-      s.y = 0;
+      s.y = -2;
       s.x = Math.random() * L.W;
     }
   }
 }
 
 // ---------- drawing ----------
-const stars = Array.from({ length: 110 }, () => ({
-  x: Math.random() * 1000,
-  y: Math.random() * 2000,
-  v: 8 + Math.random() * 40,
-  r: Math.random() * 1.4 + 0.3,
+const stars = Array.from({ length: 90 }, () => ({
+  x: Math.random() * 400,
+  y: Math.random() * 900,
+  v: 6 + Math.random() * 30,
+  r: Math.random() * 1.3 + 0.4,
 }));
 
 function draw() {
   const { W, H } = L;
   ctx.save();
-  ctx.fillStyle = "#05060f";
-  ctx.fillRect(0, 0, W, H);
-  const neb = ctx.createRadialGradient(W * 0.2, H * 0.15, 10, W * 0.2, H * 0.15, W * 0.9);
-  neb.addColorStop(0, "rgba(90, 40, 160, 0.25)");
-  neb.addColorStop(1, "rgba(5, 6, 15, 0)");
-  ctx.fillStyle = neb;
-  ctx.fillRect(0, 0, W, H);
+  drawSprite(ctx, backdrop(W, H), 0, 0);
   for (const s of stars) {
-    ctx.globalAlpha = 0.35 + s.r * 0.35;
-    ctx.fillStyle = "#cfe3ff";
-    ctx.fillRect(s.x % W, s.y % H, s.r, s.r);
+    ctx.globalAlpha = 0.25 + s.r * 0.4;
+    ctx.fillStyle = "#d8e6ff";
+    ctx.fillRect(s.x, s.y, s.r, s.r * (1 + s.v / 30));
   }
   ctx.globalAlpha = 1;
-
   if (fx.shake > 0) ctx.translate((Math.random() - 0.5) * fx.shake, (Math.random() - 0.5) * fx.shake);
-
-  if (G.cfg) {
+  if (G.cfg && G.phase !== "menu") {
     drawEnemies();
     drawShield();
     drawBays();
     drawGrid();
-    for (const s of G.ships) if (s.state === "fly") drawFlying(s);
+    for (const s of G.ships) if (s.state === "fly" || s.state === "press") drawFlying(s);
     drawFx();
-    drawHud();
+    drawBanner();
     if (G.alert) {
-      const a = 0.25 + 0.2 * Math.sin(G.t * 10);
+      const a = 0.22 + 0.18 * Math.sin(G.t * 10);
       const g = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.35, W / 2, H / 2, Math.max(W, H) * 0.75);
-      g.addColorStop(0, "rgba(255, 30, 60, 0)");
-      g.addColorStop(1, `rgba(255, 30, 60, ${a})`);
+      g.addColorStop(0, "rgba(255,30,60,0)");
+      g.addColorStop(1, `rgba(255,30,60,${a})`);
       ctx.fillStyle = g;
       ctx.fillRect(-20, -20, W + 40, H + 40);
     }
   }
   if (fx.flash > 0) {
-    ctx.fillStyle = `rgba(255, 40, 70, ${fx.flash * 0.5})`;
+    ctx.fillStyle = `rgba(255,40,70,${fx.flash * 0.5})`;
     ctx.fillRect(-20, -20, W + 40, H + 40);
   }
   ctx.restore();
 }
 
-function drawHud() {
-  const { W } = L;
-  ctx.fillStyle = "rgba(8, 12, 30, 0.8)";
-  ctx.fillRect(0, 0, W, L.hudH);
-  ctx.strokeStyle = "rgba(34, 228, 255, 0.25)";
-  ctx.beginPath();
-  ctx.moveTo(0, L.hudH);
-  ctx.lineTo(W, L.hudH);
-  ctx.stroke();
-  ctx.textBaseline = "middle";
-  ctx.fillStyle = "#8ea3d6";
-  ctx.font = "700 11px system-ui, sans-serif";
-  ctx.textAlign = "left";
-  ctx.fillText(`${G.cfg.boss ? "BOSS SECTOR" : "SECTOR"} ${G.n}`, 14, 17);
-  // Rockets still in the hangar: the count to bring down.
-  const inHangar = G.ships.filter((s) => s.state === "grid" || s.state === "bounce").length;
-  ctx.fillStyle = "#e8f1ff";
-  ctx.font = "900 20px system-ui, sans-serif";
-  ctx.fillText(`🚀 ${inHangar}`, 14, 36);
+/** Sector intro: name and what is in the hangar, for the first 1.6 seconds. */
+function drawBanner() {
+  const k = (G.t - G.start) / 1.6;
+  if (k >= 1 || G.phase !== "play") return;
+  const a = k < 0.15 ? k / 0.15 : k > 0.75 ? (1 - k) / 0.25 : 1;
+  const y = L.gy + (L.cell * G.cfg.rows) / 2;
+  ctx.save();
+  ctx.globalAlpha = a;
+  const band = ctx.createLinearGradient(0, 0, L.W, 0);
+  band.addColorStop(0, "rgba(5,8,25,0)");
+  band.addColorStop(0.5, "rgba(5,8,25,0.85)");
+  band.addColorStop(1, "rgba(5,8,25,0)");
+  ctx.fillStyle = band;
+  ctx.fillRect(0, y - 46, L.W, 92);
   ctx.textAlign = "center";
-  ctx.fillStyle = "#8ea3d6";
-  ctx.font = "700 11px system-ui, sans-serif";
-  ctx.fillText(G.mult > 1 ? `SCORE  ·  COMBO x${G.mult}` : "SCORE", W / 2, 17);
-  ctx.fillStyle = G.mult > 1 ? "#ffc23a" : "#e8f1ff";
-  ctx.font = "900 20px system-ui, sans-serif";
-  ctx.fillText(G.score.toLocaleString(), W / 2, 36);
-  ctx.textAlign = "right";
-  ctx.fillStyle = "#8ea3d6";
-  ctx.font = "700 11px system-ui, sans-serif";
-  ctx.fillText("WAVE", W - 62, 17);
-  ctx.fillStyle = "#e8f1ff";
-  ctx.font = "900 20px system-ui, sans-serif";
-  ctx.fillText(String(G.queue.length - G.q), W - 62, 36);
-  // Shield bar
-  const bw = W - 28;
-  const pct = G.hull / 100;
-  ctx.fillStyle = "rgba(255, 255, 255, 0.08)";
-  roundRect(14, 50, bw, 6, 3);
-  ctx.fill();
-  ctx.fillStyle = pct > 0.5 ? "#22e4ff" : pct > 0.25 ? "#ffc23a" : "#ff3b5c";
-  ctx.shadowColor = ctx.fillStyle;
-  ctx.shadowBlur = 8;
-  roundRect(14, 50, bw * pct, 6, 3);
-  ctx.fill();
+  ctx.textBaseline = "middle";
+  const boss = G.cfg.boss;
+  ctx.font = `900 ${boss ? 26 : 30}px ${HEAD}`;
+  ctx.fillStyle = boss ? "#ff3b5c" : "#ffffff";
+  ctx.shadowColor = boss ? "#ff3b5c" : "#22e4ff";
+  ctx.shadowBlur = 18;
+  const slide = (1 - easeOutCubic(clamp01(k / 0.25))) * 60;
+  ctx.fillText(boss ? `☠ BOSS SECTOR ${G.n}` : `SECTOR ${G.n}`, L.W / 2 - slide, y - 12);
   ctx.shadowBlur = 0;
+  ctx.font = `700 11px ${HEAD}`;
+  ctx.fillStyle = "#8fa3d4";
+  ctx.fillText(`${G.ships.length} ROCKETS  ·  ${G.cfg.colors} COLORS  ·  ${G.queue.length} SAUCERS`, L.W / 2 + slide, y + 18);
+  ctx.restore();
 }
 
 function drawEnemies() {
   const left = G.queue.length - G.q;
-  const visibleRows = Math.max(1, Math.floor((L.shieldY - L.enemyTop - 24) / L.rowH));
+  const visibleRows = Math.max(1, Math.floor((L.shieldY - L.enemyTop - 22) / L.rowH));
   const maxShown = visibleRows * L.perRow + L.perRow;
   if (G.cfg.boss) drawMothership();
   for (let k = Math.min(G.queue.length - 1, G.q + maxShown); k >= G.q; k--) {
-    const slot = k - G.qAnim;
-    const [x, y] = enemySlotPos(slot);
-    if (y < L.enemyTop + 6) continue;
-    drawAlien(x, y + Math.sin(G.t * 3 + k) * 2, L.sx * 0.36, COLORS[G.queue[k]], k === G.q);
+    const [x, y] = enemySlotPos(k - G.qAnim);
+    // The top strip is kept for the "incoming" count.
+    if (y < L.enemyTop + 16 + L.enemyR * 0.5) continue;
+    const bob = Math.sin(G.t * 3 + k * 0.7) * 1.6;
+    drawSprite(ctx, saucerSprite(G.queue[k], L.enemyR), x, y + bob, Math.sin(G.t * 2 + k) * 0.06);
+    if (k === G.q) {
+      // target reticle on the front saucer
+      ctx.save();
+      ctx.globalCompositeOperation = "lighter";
+      ctx.strokeStyle = rgba(COLORS[G.queue[k]].glow, 0.85);
+      ctx.lineWidth = 1.5;
+      const r = L.enemyR * 1.35;
+      for (let i = 0; i < 4; i++) {
+        const a0 = G.t * 2.5 + (i * Math.PI) / 2;
+        ctx.beginPath();
+        ctx.arc(x, y + bob, r, a0, a0 + 0.8);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
   }
   if (left > maxShown) {
-    ctx.fillStyle = "#8ea3d6";
-    ctx.font = "700 12px system-ui, sans-serif";
+    ctx.fillStyle = "#8fa3d4";
+    ctx.font = `700 10px ${HEAD}`;
     ctx.textAlign = "center";
-    ctx.fillText(`+${left - maxShown} more incoming`, L.W / 2, L.enemyTop + 12);
+    ctx.textBaseline = "middle";
+    ctx.fillText(`+${left - maxShown} INCOMING`, L.W / 2, L.enemyTop + 7);
   }
 }
 
 function drawMothership() {
-  const x = L.W / 2;
-  const y = L.enemyTop + 26;
-  const w = Math.min(L.W * 0.8, 320);
   ctx.save();
-  ctx.globalAlpha = 0.45 + 0.1 * Math.sin(G.t * 2);
-  const g = ctx.createLinearGradient(x - w / 2, y, x + w / 2, y);
-  g.addColorStop(0, "#3a0d1a");
-  g.addColorStop(0.5, "#8a1730");
-  g.addColorStop(1, "#3a0d1a");
-  ctx.fillStyle = g;
-  ctx.beginPath();
-  ctx.ellipse(x, y, w / 2, 22, 0, 0, Math.PI * 2);
-  ctx.fill();
-  for (let i = -3; i <= 3; i++) {
-    ctx.fillStyle = Math.sin(G.t * 6 + i) > 0 ? "#ff3b5c" : "#5a1020";
-    ctx.beginPath();
-    ctx.arc(x + i * (w / 8), y + 6, 3, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  ctx.restore();
-}
-
-function drawAlien(x, y, r, c, front) {
-  ctx.save();
-  ctx.translate(x, y);
-  if (front) {
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.6)";
-    ctx.lineWidth = 1.5;
-    ctx.setLineDash([3, 3]);
-    ctx.beginPath();
-    ctx.arc(0, 0, r * 1.45, G.t * 2, G.t * 2 + Math.PI * 2);
-    ctx.stroke();
-    ctx.setLineDash([]);
-  }
-  ctx.shadowColor = c.main;
-  ctx.shadowBlur = 10;
-  // saucer
-  ctx.fillStyle = c.dark;
-  ctx.beginPath();
-  ctx.ellipse(0, r * 0.25, r, r * 0.42, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = c.main;
-  ctx.beginPath();
-  ctx.ellipse(0, r * 0.12, r * 0.92, r * 0.34, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.shadowBlur = 0;
-  // dome
-  ctx.fillStyle = "rgba(220, 245, 255, 0.85)";
-  ctx.beginPath();
-  ctx.ellipse(0, -r * 0.1, r * 0.45, r * 0.42, 0, Math.PI, 0);
-  ctx.fill();
-  // eyes
-  ctx.fillStyle = c.dark;
-  ctx.beginPath();
-  ctx.arc(-r * 0.15, -r * 0.2, r * 0.08, 0, Math.PI * 2);
-  ctx.arc(r * 0.15, -r * 0.2, r * 0.08, 0, Math.PI * 2);
-  ctx.fill();
-  // lights
-  ctx.fillStyle = c.glow;
-  for (let i = -2; i <= 2; i++) {
-    ctx.beginPath();
-    ctx.arc(i * r * 0.36, r * 0.28, r * 0.07, 0, Math.PI * 2);
-    ctx.fill();
-  }
+  ctx.globalAlpha = 0.55 + 0.1 * Math.sin(G.t * 2);
+  drawSprite(ctx, saucerSprite(0, L.sx * 1.1), L.W / 2, L.enemyTop + 18, 0, 2.6, 0.9);
+  ctx.globalCompositeOperation = "lighter";
+  ctx.globalAlpha = 0.35 + 0.25 * Math.sin(G.t * 5);
+  drawSprite(ctx, glowSprite("#ff3b5c", L.sx * 1.6), L.W / 2, L.enemyTop + 18, 0, 2, 0.7);
   ctx.restore();
 }
 
 function drawShield() {
   const y = L.shieldY;
   const hot = G.threat >= 1;
-  const a = 0.4 + 0.25 * Math.sin(G.t * (hot ? 18 : 3));
-  ctx.strokeStyle = hot ? `rgba(255, 59, 92, ${a + 0.3})` : `rgba(34, 228, 255, ${a})`;
-  ctx.lineWidth = 2;
-  ctx.shadowColor = hot ? "#ff3b5c" : "#22e4ff";
-  ctx.shadowBlur = 12;
+  const col = hot ? "#ff3b5c" : "#22e4ff";
+  ctx.save();
+  const band = ctx.createLinearGradient(0, y - 22, 0, y + 2);
+  band.addColorStop(0, rgba(col, 0));
+  band.addColorStop(1, rgba(col, hot ? 0.35 : 0.14 + 0.05 * Math.sin(G.t * 3)));
+  ctx.fillStyle = band;
+  ctx.fillRect(0, y - 22, L.W, 24);
+  ctx.globalCompositeOperation = "lighter";
+  ctx.strokeStyle = rgba(col, 0.7 + 0.3 * Math.sin(G.t * (hot ? 18 : 3)));
+  ctx.lineWidth = 1.6;
+  ctx.shadowColor = col;
+  ctx.shadowBlur = 10;
   ctx.beginPath();
-  for (let x = 8; x <= L.W - 8; x += 6) {
-    const yy = y + Math.sin(x * 0.05 + G.t * 4) * 1.5;
-    if (x === 8) ctx.moveTo(x, yy);
+  for (let x = 0; x <= L.W; x += 6) {
+    const yy = y + Math.sin(x * 0.05 + G.t * 4) * 1.2;
+    if (x === 0) ctx.moveTo(x, yy);
     else ctx.lineTo(x, yy);
   }
   ctx.stroke();
-  ctx.shadowBlur = 0;
-  // threat meter on the left edge of the enemy zone
+  ctx.restore();
   if (G.cfg.creep > 0) {
     const top = L.enemyTop + 6;
     const h = y - top - 6;
-    ctx.fillStyle = "rgba(255, 255, 255, 0.07)";
-    roundRect(6, top, 4, h, 2);
+    ctx.fillStyle = "rgba(255,255,255,0.07)";
+    ctx.beginPath();
+    ctx.roundRect(5, top, 4, h, 2);
     ctx.fill();
     ctx.fillStyle = G.threat > 0.8 ? "#ff3b5c" : G.threat > 0.5 ? "#ffc23a" : "#7dff4a";
-    roundRect(6, top + h * (1 - G.threat), 4, h * G.threat, 2);
+    ctx.beginPath();
+    ctx.roundRect(5, top + h * (1 - G.threat), 4, Math.max(0.1, h * G.threat), 2);
     ctx.fill();
   }
 }
 
 function drawBays() {
   const shakeX = G.bayShake > 0 ? Math.sin(G.t * 70) * 5 * (G.bayShake / 0.35) : 0;
+  const pad = padSprite(L.bayW, L.bayH);
   for (let i = 0; i < L.slots; i++) {
-    const b = G.bays[i];
     const x = bayX(i) + shakeX;
     const y = L.bayY;
-    const w = L.bayW;
-    const h = L.bayH;
     if (i >= G.bays.length) {
-      drawLockedBay(x, y, w, h);
+      drawLockedBay(x, y);
       continue;
     }
-    ctx.save();
-    if (b) {
-      const c = COLORS[b.color];
-      ctx.fillStyle = c.dark + "55";
-      ctx.strokeStyle = c.main;
-      ctx.shadowColor = c.main;
-      ctx.shadowBlur = b.ready ? 14 : 4;
-    } else {
-      ctx.fillStyle = "rgba(20, 30, 70, 0.35)";
-      ctx.strokeStyle = G.alert ? "rgba(255, 59, 92, 0.7)" : "rgba(120, 150, 230, 0.45)";
-      ctx.setLineDash([5, 4]);
+    drawSprite(ctx, pad, x, y);
+    const b = G.bays[i];
+    if (!b) {
+      if (G.alert) {
+        ctx.strokeStyle = `rgba(255,59,92,${0.4 + 0.3 * Math.sin(G.t * 10)})`;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.roundRect(x - L.bayW / 2 + 2, y - L.bayH / 2 + 2, L.bayW - 4, L.bayH - 4, 10);
+        ctx.stroke();
+      }
+      continue;
     }
+    const c = COLORS[b.color];
+    // pad lights in the rocket's color
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    ctx.strokeStyle = rgba(c.main, b.ready ? 0.9 : 0.35);
+    ctx.shadowColor = c.main;
+    ctx.shadowBlur = b.ready ? 14 : 4;
     ctx.lineWidth = 2;
-    roundRect(x - w / 2, y - h / 2, w, h, 10);
-    ctx.fill();
+    ctx.beginPath();
+    ctx.roundRect(x - L.bayW / 2 + 2, y - L.bayH / 2 + 2, L.bayW - 4, L.bayH - 4, 10);
     ctx.stroke();
     ctx.restore();
-    if (b && b.ready) {
-      const s = G.ships[b.ship];
-      const recoil = b.recoil * 4;
-      drawShip(x, y + recoil, -Math.PI / 2, h * 0.82, w * 0.62, COLORS[s.color], { engine: 1 });
+    const s = G.ships[b.ship];
+    if (b.ready) {
+      let scale = 1;
+      if (s.state === "dock") scale = lerp(1.25, 1, easeOutBack(clamp01(s.anim.t / 0.3), 2.4));
+      const hover = Math.sin(G.t * 3 + i) * 1.2;
+      const rx = -Math.cos(b.ang) * b.recoil * 3;
+      const ry = -Math.sin(b.ang) * b.recoil * 3;
+      drawShipSprite(s, x + rx, y + hover + ry, b.ang, padLen(s) * scale, padWid() * scale, false, 4, 1);
     }
-    if (b) {
-      // shots left, like a seat counter
-      const c = COLORS[b.color];
-      const bx = x;
-      const by = y + h / 2 + 12;
-      ctx.fillStyle = c.main;
-      roundRect(bx - 17, by - 9, 34, 18, 6);
-      ctx.fill();
-      ctx.fillStyle = "#06101c";
-      ctx.font = "900 13px system-ui, sans-serif";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText(String(b.ammo), bx, by + 1);
-    }
+    // shots left
+    const by = y + L.bayH / 2 + 11;
+    const pop = 1 + b.pop * 0.25;
+    ctx.save();
+    ctx.translate(x, by);
+    ctx.scale(pop, pop);
+    const grad = ctx.createLinearGradient(0, -9, 0, 9);
+    grad.addColorStop(0, c.glow);
+    grad.addColorStop(1, c.main);
+    ctx.fillStyle = grad;
+    ctx.shadowColor = c.main;
+    ctx.shadowBlur = 8;
+    ctx.beginPath();
+    ctx.roundRect(-16, -9, 32, 18, 9);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = "#06101c";
+    ctx.font = `900 11px ${HEAD}`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(String(b.ammo), 0, 1);
+    ctx.restore();
   }
 }
 
-/** The sixth bay: locked until the +1 bay booster opens it; it glows when it would save the player. */
-function drawLockedBay(x, y, w, h) {
-  const urgent = G.alert || G.bays.every(Boolean);
+/** The sixth pad: locked until the +1 bay booster opens it; it glows when it would save the player. */
+function drawLockedBay(x, y) {
+  const w = L.bayW;
+  const h = L.bayH;
   const have = save.boost.bay > 0;
+  const urgent = have && (G.alert || G.bays.every(Boolean));
   ctx.save();
-  ctx.fillStyle = "rgba(255, 194, 58, 0.06)";
-  ctx.strokeStyle = have ? `rgba(255, 194, 58, ${urgent ? 0.6 + 0.4 * Math.sin(G.t * 8) : 0.45})` : "rgba(120, 130, 160, 0.3)";
-  if (urgent && have) {
+  ctx.globalAlpha = 0.45;
+  drawSprite(ctx, padSprite(w, h), x, y);
+  ctx.globalAlpha = 1;
+  ctx.strokeStyle = have ? `rgba(255,194,58,${urgent ? 0.6 + 0.4 * Math.sin(G.t * 8) : 0.45})` : "rgba(120,130,160,0.3)";
+  if (urgent) {
     ctx.shadowColor = "#ffc23a";
-    ctx.shadowBlur = 14;
+    ctx.shadowBlur = 16;
   }
-  ctx.lineWidth = 2;
-  ctx.setLineDash([3, 4]);
-  roundRect(x - w / 2, y - h / 2, w, h, 10);
-  ctx.fill();
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([4, 4]);
+  ctx.beginPath();
+  ctx.roundRect(x - w / 2 + 2, y - h / 2 + 2, w - 4, h - 4, 10);
   ctx.stroke();
   ctx.restore();
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.font = `${Math.round(w * 0.36)}px system-ui, sans-serif`;
-  ctx.globalAlpha = have ? 0.95 : 0.4;
-  ctx.fillText("🔒", x, y - h * 0.08);
-  ctx.font = "800 10px system-ui, sans-serif";
-  ctx.fillStyle = have ? "#ffc23a" : "#8ea3d6";
-  ctx.fillText(have ? `+1 (${save.boost.bay})` : "+1", x, y + h * 0.3);
+  ctx.globalAlpha = have ? 1 : 0.4;
+  ctx.font = `${Math.round(w * 0.34)}px system-ui, sans-serif`;
+  ctx.fillText("🔒", x, y - h * 0.1);
+  ctx.font = `900 9px ${HEAD}`;
+  ctx.fillStyle = have ? "#ffc23a" : "#8fa3d4";
+  ctx.fillText(have ? `+1 · ${save.boost.bay}` : "+1", x, y + h * 0.28);
   ctx.globalAlpha = 1;
 }
 
-/** The rocket to highlight: a Radar pick, or (sectors 1-2) a free hint after a short idle time. */
-function currentHint() {
-  if (G.hintId !== -1 && G.t < G.hintUntil && G.ships[G.hintId].state === "grid") return G.ships[G.hintId];
-  const idle = G.n === 1 && G.launches === 0 ? 0.8 : 4;
-  if (G.n > 2 || G.t - G.lastTap < idle) return null;
-  const inGrid = G.ships.filter((s) => s.state === "grid");
-  return radarHint(inGrid, G.queue, G.q, G.bays, G.cfg.cols, G.cfg.rows);
+/** One rocket: soft shadow below, the sprite, then the engine glow (additive). */
+function drawShipSprite(s, x, y, ang, len, wid, arrow, lift, engine) {
+  const skin = save.skin;
+  drawSprite(ctx, shadowSprite(skin, len, wid), x + lift * 0.6, y + lift, ang);
+  drawSprite(ctx, shipSprite(skin, s.color, len, wid, arrow), x, y, ang);
+  if (engine > 0) {
+    const c = COLORS[s.color];
+    const rx = x - Math.cos(ang) * len * 0.52;
+    const ry = y - Math.sin(ang) * len * 0.52;
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    ctx.globalAlpha = Math.min(1, engine) * (0.6 + Math.random() * 0.4);
+    const r = wid * (0.45 + engine * 0.35);
+    drawSprite(ctx, glowSprite(c.glow, r), rx, ry, ang, 1 + engine * 0.8, 0.7);
+    ctx.restore();
+  }
 }
 
 function drawGrid() {
   const { cols, rows } = G.cfg;
   const { gx, gy, cell } = L;
-  ctx.save();
-  ctx.fillStyle = "rgba(14, 20, 46, 0.85)";
-  ctx.strokeStyle = "rgba(34, 228, 255, 0.35)";
-  ctx.lineWidth = 1.5;
-  ctx.shadowColor = "#22e4ff";
-  ctx.shadowBlur = 10;
-  roundRect(gx - 8, gy - 8, cols * cell + 16, rows * cell + 16, 14);
-  ctx.fill();
-  ctx.stroke();
-  ctx.restore();
-  ctx.strokeStyle = "rgba(120, 150, 230, 0.08)";
-  ctx.lineWidth = 1;
-  for (let i = 1; i < cols; i++) {
-    ctx.beginPath();
-    ctx.moveTo(gx + i * cell, gy);
-    ctx.lineTo(gx + i * cell, gy + rows * cell);
-    ctx.stroke();
-  }
-  for (let j = 1; j < rows; j++) {
-    ctx.beginPath();
-    ctx.moveTo(gx, gy + j * cell);
-    ctx.lineTo(gx + cols * cell, gy + j * cell);
-    ctx.stroke();
-  }
+  const tex = hangarTexture(cols, rows, cell);
+  drawSprite(ctx, tex, gx - tex.frame + tex.cx, gy - tex.frame + tex.cy);
+  const front = G.queue[G.q];
+  const since = G.t - G.start;
   for (const s of G.ships) {
     if (s.state !== "grid" && s.state !== "bounce") continue;
     let [x, y] = shipCenter(s);
+    let ang = dirAngle[s.dir];
+    let scale = 1;
+    let alpha = 1;
+    // deploy: drop in from above and settle
+    const dk = clamp01((since - s.deploy) / 0.35);
+    if (dk < 1) {
+      scale = lerp(1.6, 1, easeOutBack(dk, 1.4));
+      alpha = clamp01(dk * 2.5);
+      if (dk <= 0) continue;
+    }
     if (s.state === "bounce") {
-      const k = s.anim.t / s.anim.dur;
-      const off = s.anim.dist * Math.sin(Math.PI * k);
+      const off = bounceOffset(s);
       x += DIRS[s.dir][0] * off;
       y += DIRS[s.dir][1] * off;
     }
-    const pad = cell * 0.1;
-    // Rockets of the color the wave's front needs get a soft glow underneath (it says nothing about
-    // whether they are free, so the puzzle stays the player's).
-    if (G.queue[G.q] === s.color && G.phase === "play") {
-      const horizontal = s.dir === "left" || s.dir === "right";
-      const w = (horizontal ? s.len : 1) * cell - pad;
-      const h = (horizontal ? 1 : s.len) * cell - pad;
-      ctx.fillStyle = `rgba(255, 255, 255, ${0.07 + 0.05 * Math.sin(G.t * 5)})`;
-      roundRect(x - w / 2, y - h / 2, w, h, 8);
-      ctx.fill();
+    if (s.wob > 0) ang += Math.sin(G.t * 50) * s.wob * 0.25;
+    const len = gridLen(s);
+    const wid = L.shipW;
+    // the color the wave's front needs glows softly underneath
+    if (front === s.color && G.phase === "play") {
+      ctx.save();
+      ctx.globalCompositeOperation = "lighter";
+      ctx.globalAlpha = 0.22 + 0.1 * Math.sin(G.t * 5);
+      drawSprite(ctx, glowSprite(COLORS[s.color].main, wid), x, y, ang, (len / wid) * 0.8, 0.75);
+      ctx.restore();
     }
-    drawShip(x, y, dirAngle[s.dir], s.len * cell - pad, cell - pad * 1.6, COLORS[s.color], { arrow: true, flash: s.flash, engine: 0.35 });
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    drawShipSprite(s, x, y, ang, len * scale, wid * scale, true, dk < 1 ? 6 * (1 - dk) + 2 : 2, 0.25);
+    ctx.restore();
+    if (s.flash > 0) {
+      ctx.save();
+      ctx.globalCompositeOperation = "lighter";
+      ctx.globalAlpha = Math.min(1, s.flash * 2) * (0.5 + 0.5 * Math.sin(G.t * 40));
+      drawSprite(ctx, glowSprite("#ff3b5c", wid), x, y, ang, len / wid, 0.8);
+      ctx.restore();
+    }
   }
-  const hint = G.phase === "play" ? currentHint() : null;
+  const hint = G.phase === "play" && since > 0.8 ? currentHint() : null;
   if (hint) {
-    // A glowing frame around the rocket, plus a second one that grows and fades.
     const [x, y] = shipCenter(hint);
     const horizontal = hint.dir === "left" || hint.dir === "right";
     const w = (horizontal ? hint.len : 1) * cell;
@@ -1086,132 +1224,73 @@ function drawGrid() {
     ctx.shadowColor = "#ffffff";
     ctx.shadowBlur = 12;
     ctx.lineWidth = 2.5;
-    roundRect(x - w / 2, y - h / 2, w, h, 10);
+    ctx.beginPath();
+    ctx.roundRect(x - w / 2, y - h / 2, w, h, 8);
     ctx.stroke();
     ctx.globalAlpha = 1 - k;
-    const grow = k * cell * 0.3;
-    roundRect(x - w / 2 - grow, y - h / 2 - grow, w + grow * 2, h + grow * 2, 10 + grow);
+    const grow = k * cell * 0.35;
+    ctx.beginPath();
+    ctx.roundRect(x - w / 2 - grow, y - h / 2 - grow, w + grow * 2, h + grow * 2, 8 + grow);
     ctx.stroke();
     ctx.restore();
     if (G.n === 1 && G.launches === 0) {
-      // In the gap between the bays and the hangar, where it covers nothing.
-      ctx.font = "900 14px system-ui, sans-serif";
+      ctx.font = `900 12px ${HEAD}`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillStyle = "#ffffff";
       ctx.shadowColor = "#22e4ff";
       ctx.shadowBlur = 10;
-      ctx.fillText("TAP THE GLOWING ROCKET TO LAUNCH", L.W / 2, gy - 18 + Math.sin(G.t * 4) * 2);
+      ctx.fillText("TAP THE GLOWING ROCKET", L.W / 2, gy - 18 + Math.sin(G.t * 4) * 2);
       ctx.shadowBlur = 0;
     }
   }
 }
 
-function drawFlying(s) {
-  const p = flightPose(s);
-  const lenGrid = s.len * L.cell - L.cell * 0.1;
-  const widGrid = L.cell * 0.84;
-  const len = lenGrid + (L.bayH * 0.82 - lenGrid) * p.scale;
-  const wid = widGrid + (L.bayW * 0.62 - widGrid) * p.scale;
-  drawShip(p.x, p.y, p.ang, len, wid, COLORS[s.color], { engine: 1.6, arrow: p.scale < 0.3 });
+/** The rocket to highlight: a Radar pick, or (sectors 1-2) a free hint after a short idle time. */
+function currentHint() {
+  if (G.hintId !== -1 && G.t < G.hintUntil && G.ships[G.hintId].state === "grid") return G.ships[G.hintId];
+  const idle = G.n === 1 && G.launches === 0 ? 0 : 4;
+  if (G.n > 2 || G.t - G.lastTap < idle) return null;
+  return radarHint(G.ships.filter((s) => s.state === "grid"), G.queue, G.q, G.bays, G.cfg.cols, G.cfg.rows);
 }
 
-/** A ship pointing along `ang` (0 = right), `len` long and `wid` wide, centered on x, y. */
-function drawShip(x, y, ang, len, wid, c, opt = {}) {
-  ctx.save();
-  ctx.translate(x, y);
-  ctx.rotate(ang);
-  const hl = len / 2;
-  const hw = wid / 2;
-  // engine flame at the back
-  if (opt.engine) {
-    const fl = hw * (0.8 + Math.random() * 0.5) * opt.engine;
-    const g = ctx.createLinearGradient(-hl, 0, -hl - fl * 1.6, 0);
-    g.addColorStop(0, c.glow);
-    g.addColorStop(1, "rgba(255, 255, 255, 0)");
-    ctx.fillStyle = g;
-    ctx.beginPath();
-    ctx.moveTo(-hl + 2, -hw * 0.38);
-    ctx.lineTo(-hl - fl * 1.6, 0);
-    ctx.lineTo(-hl + 2, hw * 0.38);
-    ctx.fill();
+function drawFlying(s) {
+  if (s.state === "press") {
+    const [x, y] = shipCenter(s);
+    const k = clamp01(s.anim.t / 0.08);
+    const sq = 1 - 0.14 * Math.sin(k * Math.PI);
+    drawShipSprite(s, x, y, dirAngle[s.dir], gridLen(s) * sq, L.shipW * (2 - sq), true, 2, 1.2);
+    return;
   }
-  ctx.shadowColor = c.main;
-  ctx.shadowBlur = opt.flash > 0 ? 22 : 8;
-  // wings
-  ctx.fillStyle = c.dark;
-  ctx.beginPath();
-  ctx.moveTo(-hl * 0.15, -hw * 0.55);
-  ctx.lineTo(-hl * 0.95, -hw);
-  ctx.lineTo(-hl, -hw * 0.5);
-  ctx.lineTo(-hl, hw * 0.5);
-  ctx.lineTo(-hl * 0.95, hw);
-  ctx.lineTo(-hl * 0.15, hw * 0.55);
-  ctx.closePath();
-  ctx.fill();
-  // hull: long body with a pointed nose
-  const body = ctx.createLinearGradient(0, -hw, 0, hw);
-  body.addColorStop(0, c.glow);
-  body.addColorStop(0.45, c.main);
-  body.addColorStop(1, c.dark);
-  ctx.fillStyle = body;
-  ctx.beginPath();
-  ctx.moveTo(hl, 0);
-  ctx.quadraticCurveTo(hl * 0.7, -hw * 0.72, hl * 0.3, -hw * 0.72);
-  ctx.lineTo(-hl * 0.88, -hw * 0.62);
-  ctx.quadraticCurveTo(-hl, -hw * 0.62, -hl, -hw * 0.4);
-  ctx.lineTo(-hl, hw * 0.4);
-  ctx.quadraticCurveTo(-hl, hw * 0.62, -hl * 0.88, hw * 0.62);
-  ctx.lineTo(hl * 0.3, hw * 0.72);
-  ctx.quadraticCurveTo(hl * 0.7, hw * 0.72, hl, 0);
-  ctx.fill();
-  ctx.shadowBlur = 0;
-  // panel line
-  ctx.strokeStyle = "rgba(0, 0, 0, 0.25)";
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(-hl * 0.85, 0);
-  ctx.lineTo(hl * 0.25, 0);
-  ctx.stroke();
-  // cockpit
-  ctx.fillStyle = "rgba(10, 20, 40, 0.85)";
-  ctx.beginPath();
-  ctx.ellipse(hl * 0.55, 0, Math.min(hl * 0.22, hw * 0.9), hw * 0.34, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = "rgba(200, 245, 255, 0.7)";
-  ctx.beginPath();
-  ctx.ellipse(hl * 0.6, -hw * 0.1, Math.min(hl * 0.1, hw * 0.4), hw * 0.12, 0, 0, Math.PI * 2);
-  ctx.fill();
-  if (opt.flash > 0) {
-    ctx.fillStyle = `rgba(255, 60, 80, ${Math.min(1, opt.flash * 2) * (0.5 + 0.5 * Math.sin(G.t * 40))})`;
-    ctx.fillRect(-hl, -hw, len, wid);
+  const p = flightPose(s);
+  const c = COLORS[s.color];
+  // engine trail
+  if (s.trail.length > 1) {
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    ctx.lineCap = "round";
+    for (let i = 1; i < s.trail.length; i++) {
+      const k = i / s.trail.length;
+      ctx.strokeStyle = rgba(c.glow, k * 0.55);
+      ctx.lineWidth = L.shipW * 0.5 * k;
+      ctx.beginPath();
+      ctx.moveTo(s.trail[i - 1][0], s.trail[i - 1][1]);
+      ctx.lineTo(s.trail[i][0], s.trail[i][1]);
+      ctx.stroke();
+    }
+    ctx.restore();
   }
-  // direction arrow
-  if (opt.arrow) {
-    const s = Math.min(hw * 0.9, len * 0.22);
-    const ax = -hl * 0.25;
-    ctx.fillStyle = "#ffffff";
-    ctx.strokeStyle = "rgba(0, 0, 0, 0.35)";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(ax + s, 0);
-    ctx.lineTo(ax, -s * 0.75);
-    ctx.lineTo(ax, -s * 0.3);
-    ctx.lineTo(ax - s * 0.9, -s * 0.3);
-    ctx.lineTo(ax - s * 0.9, s * 0.3);
-    ctx.lineTo(ax, s * 0.3);
-    ctx.lineTo(ax, s * 0.75);
-    ctx.closePath();
-    ctx.stroke();
-    ctx.fill();
-  }
-  ctx.restore();
+  const len = lerp(gridLen(s), padLen(s), p.k) * (1 + 0.25 * Math.sin(p.k * Math.PI));
+  const wid = lerp(L.shipW, padWid(), p.k) * (1 + 0.25 * Math.sin(p.k * Math.PI));
+  const lift = 3 + 10 * Math.sin(p.k * Math.PI);
+  drawShipSprite(s, p.x, p.y, p.ang, len, wid, false, lift, 2);
 }
 
 function drawFx() {
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
   for (const b of fx.beams) {
     const a = 1 - b.t / 0.12;
-    ctx.save();
     ctx.globalAlpha = a;
     ctx.strokeStyle = b.glow;
     ctx.shadowColor = b.color;
@@ -1221,34 +1300,63 @@ function drawFx() {
     ctx.moveTo(b.x1, b.y1);
     ctx.lineTo(b.x2, b.y2);
     ctx.stroke();
+    ctx.shadowBlur = 0;
     ctx.strokeStyle = "#ffffff";
     ctx.lineWidth = 1.6;
     ctx.stroke();
-    ctx.restore();
-  }
-  for (const p of fx.particles) {
-    ctx.globalAlpha = 1 - p.life / p.max;
-    ctx.fillStyle = p.color;
-    ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
   }
   ctx.globalAlpha = 1;
-  for (const r of fx.rings) {
-    const k = r.t / 0.4;
-    ctx.strokeStyle = r.color;
+  for (const f of fx.flashes) {
+    const k = f.t / f.life;
     ctx.globalAlpha = 1 - k;
-    ctx.lineWidth = 2.5 * (1 - k) + 0.5;
+    drawSprite(ctx, glowSprite(f.color, f.r), f.x, f.y, 0, 0.6 + k * 0.6);
+  }
+  ctx.globalAlpha = 1;
+  for (const p of fx.particles) {
+    if (p.kind !== "spark") continue;
+    const k = 1 - p.life / p.max;
+    ctx.strokeStyle = rgba(p.color, k);
+    ctx.lineWidth = 1.6;
     ctx.beginPath();
-    ctx.arc(r.x, r.y, r.maxR * (0.3 + k * 0.7), 0, Math.PI * 2);
+    ctx.moveTo(p.x, p.y);
+    ctx.lineTo(p.x - p.vx * 0.03, p.y - p.vy * 0.03);
     ctx.stroke();
   }
-  ctx.globalAlpha = 1;
+  for (const r of fx.rings) {
+    const k = r.t / r.life;
+    ctx.strokeStyle = r.color;
+    ctx.globalAlpha = 1 - k;
+    ctx.lineWidth = r.width * (1 - k) + 0.5;
+    ctx.beginPath();
+    ctx.arc(r.x, r.y, r.maxR * (0.25 + easeOutCubic(k) * 0.75), 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.restore();
+  for (const p of fx.particles) {
+    if (p.kind !== "debris") continue;
+    ctx.save();
+    ctx.globalAlpha = 1 - p.life / p.max;
+    ctx.translate(p.x, p.y);
+    ctx.rotate(p.rot);
+    ctx.fillStyle = p.color;
+    ctx.fillRect(-p.size / 2, -p.size / 4, p.size, p.size / 2);
+    ctx.restore();
+  }
   for (const w of fx.warps) {
-    // warping away: stretches upward and fades
-    const k = w.t / 0.45;
+    // warp out: stretch upward, flash, gone
+    const k = w.t / 0.5;
+    const s = { color: w.color, len: w.len };
     ctx.save();
     ctx.globalAlpha = 1 - k;
-    drawShip(w.x, w.y - k * k * L.H * 0.4, -Math.PI / 2, L.bayH * 0.82 * (1 + k * 2.5), L.bayW * 0.62 * (1 - k * 0.6), COLORS[w.color], { engine: 3 });
+    drawShipSprite(s, w.x, w.y - easeInQuad(k) * L.H * 0.35, -Math.PI / 2, padLen(s) * (1 + k * 2.2), padWid() * (1 - k * 0.5), false, 0, 3);
     ctx.restore();
+    if (k < 0.3) {
+      ctx.save();
+      ctx.globalCompositeOperation = "lighter";
+      ctx.globalAlpha = 1 - k / 0.3;
+      drawSprite(ctx, glowSprite(COLORS[w.color].glow, L.bayW * 0.7), w.x, w.y, 0, 1, 1.6);
+      ctx.restore();
+    }
   }
   for (const t of fx.texts) {
     const k = t.t / t.life;
@@ -1257,11 +1365,11 @@ function drawFx() {
     ctx.globalAlpha = k > 0.7 ? (1 - k) / 0.3 : 1;
     ctx.translate(t.x, t.y - k * 30);
     ctx.scale(pop, pop);
-    ctx.font = `900 ${t.size}px system-ui, sans-serif`;
+    ctx.font = `900 ${t.size}px ${HEAD}`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.lineWidth = 4;
-    ctx.strokeStyle = "rgba(0, 0, 0, 0.6)";
+    ctx.strokeStyle = "rgba(0,0,0,0.65)";
     ctx.strokeText(t.text, 0, 0);
     ctx.shadowColor = t.color;
     ctx.shadowBlur = 14;
@@ -1271,69 +1379,144 @@ function drawFx() {
   }
 }
 
-function roundRect(x, y, w, h, r) {
-  r = Math.min(r, w / 2, h / 2);
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.arcTo(x + w, y, x + w, y + h, r);
-  ctx.arcTo(x + w, y + h, x, y + h, r);
-  ctx.arcTo(x, y + h, x, y, r);
-  ctx.arcTo(x, y, x + w, y, r);
-  ctx.closePath();
+// ---------- HUD ----------
+const hudCache = {};
+function setText(id, v) {
+  if (hudCache[id] !== v) {
+    hudCache[id] = v;
+    $(id).textContent = v;
+  }
+}
+function updateHud() {
+  if (!G.cfg || (G.phase !== "play" && G.phase !== "ending")) return;
+  setText("hudLvl", String(save.pilot.level));
+  setText("hudSector", G.cfg.boss ? `Boss ${G.n}` : `Sector ${G.n}`);
+  setText("hudScore", G.score.toLocaleString());
+  setText("hudScoreLbl", G.mult > 1 ? `Combo x${G.mult}` : "Score");
+  setText("hudRockets", String(inHangar()));
+  setText("hudWave", String(G.queue.length - G.q));
+  $("hudScore").classList.toggle("hot", G.mult > 1);
+  const xpPct = `${(save.pilot.xp / xpToNext(save.pilot.level)) * 100}%`;
+  if (hudCache.xp !== xpPct) $("hudXp").style.width = hudCache.xp = xpPct;
+  const sh = `${Math.max(0, G.hull)}%`;
+  if (hudCache.sh !== sh) {
+    hudCache.sh = sh;
+    $("hudShield").style.width = sh;
+    $("hudShield").style.background = G.hull > 50 ? "" : G.hull > 25 ? "linear-gradient(90deg,#ffc23a,#ffe39a)" : "linear-gradient(90deg,#ff3b5c,#ff8aa0)";
+  }
 }
 
 // ---------- screens ----------
-const overlays = ["menu", "pause", "win", "lose", "map"];
+const overlays = ["menu", "how", "map", "hangar", "pause", "win", "levelup", "lose"];
 function showOnly(id) {
   for (const o of overlays) $(o).classList.toggle("show", o === id);
-  // In-game controls only while playing.
+  const playing = id === null || id === "pause";
+  $("hud").classList.toggle("show", playing);
+  $("shieldBar").classList.toggle("show", playing);
   $("boosts").classList.toggle("show", id === null);
-  $("pauseBtn").classList.toggle("show", id === null);
 }
+
+function pilotCardHtml() {
+  const p = save.pilot;
+  const rank = rankFor(p.level);
+  const need = xpToNext(p.level);
+  const unlock = nextUnlock(p.level);
+  const goal = unlock ? `Next hull: <b>${unlock.name}</b> at Lv ${unlock.level}` : rank.next ? `Next rank: ${rank.next.name} at Lv ${rank.next.level}` : "Top of the fleet";
+  return (
+    `<div class="hex">${p.level}</div><div class="info"><div class="rank">${rank.name.toUpperCase()}</div>` +
+    `<div class="bar"><i style="width:${(p.xp / need) * 100}%"></i></div>` +
+    `<div class="small">${p.xp} / ${need} XP · ${goal}</div></div>`
+  );
+}
+
 function showMenu() {
   G.phase = "menu";
-  $("menuLevel").textContent = `Next: sector ${save.level}${save.best ? `  ·  Best ${save.best.toLocaleString()}` : ""}`;
-  $("menuRank").innerHTML = rankHtml(false);
-  $("playBtn").textContent = save.level > 1 ? `Launch sector ${save.level}` : "Launch";
+  $("menuPilot").innerHTML = pilotCardHtml();
+  const chips = [`<span class="chip">★ ${totalStars()}</span>`];
+  if (save.best) chips.push(`<span class="chip">BEST ${save.best.toLocaleString()}</span>`);
+  if (save.streak > 1) chips.push(`<span class="chip fire">🔥 ${save.streak} STREAK · XP ×${streakMultiplier(save.streak + 1).toFixed(1)}</span>`);
+  $("menuChips").innerHTML = chips.join("");
+  $("playBtn").textContent = save.level > 1 ? `Launch · Sector ${save.level}` : "Launch";
   showOnly("menu");
+  // A level reached on a lost run is celebrated here.
+  if (pendingLevels.length) setTimeout(() => G.phase === "menu" && showLevelUp(), 350);
 }
-/** All sectors as a map: cleared ones show their stars, the next one glows, later ones are locked. */
+
 function showMap() {
   G.phase = "map";
-  const last = Math.max(20, Math.ceil((save.level + 5) / 5) * 5);
-  let html = "";
+  const last = Math.max(20, Math.ceil((save.level + 6) / 5) * 5);
+  const step = 86;
+  const height = last * step + 60;
+  const width = $("mapScroll").clientWidth || 320;
+  const pos = (n) => [width / 2 + Math.sin(n * 0.85) * width * 0.3, height - (n - 0.5) * step];
+  let path = "";
+  let done = "";
   for (let n = 1; n <= last; n++) {
+    const [x, y] = pos(n);
+    path += `${n === 1 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)} `;
+    if (n <= save.level) done += `${n === 1 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)} `;
+  }
+  let html =
+    `<svg width="${width}" height="${height}"><path d="${path}" fill="none" stroke="rgba(140,170,255,0.25)" stroke-width="3" stroke-dasharray="2 8" stroke-linecap="round"/>` +
+    `<path d="${done}" fill="none" stroke="#22e4ff" stroke-width="3" stroke-linecap="round" style="filter:drop-shadow(0 0 6px #22e4ff)"/></svg>`;
+  for (let n = 1; n <= last; n++) {
+    const [x, y] = pos(n);
     const st = save.stars[n] || 0;
     const open = n <= save.level;
-    const cls = ["sector", open ? "" : "locked", n === save.level ? "next" : "", n % 10 === 0 ? "boss" : ""].join(" ");
-    const starRow = open && n < save.level ? "★".repeat(st) + "☆".repeat(3 - st) : open ? "GO" : "🔒";
-    html += `<button class="${cls}" data-n="${n}" ${open ? "" : "disabled"}><b>${n % 10 === 0 ? "☠ " : ""}${n}</b><span>${starRow}</span></button>`;
+    const boss = n % 10 === 0;
+    const hue = (n * 47) % 360;
+    const bg = boss
+      ? "radial-gradient(circle at 35% 30%, #ff9aa8, #ff3b5c 45%, #4a0716)"
+      : `radial-gradient(circle at 35% 30%, hsl(${hue},90%,72%), hsl(${hue},70%,42%) 50%, hsl(${hue},60%,12%))`;
+    const cls = ["node", open ? "" : "locked", n === save.level ? "next" : "", boss ? "boss" : ""].join(" ");
+    const label = n === save.level ? `<span class="you">YOU</span>` : open && st ? `<span class="st">${"★".repeat(st)}${"☆".repeat(3 - st)}</span>` : "";
+    html += `<button class="${cls}" data-n="${n}" ${open ? "" : "disabled"} style="left:${x}px;top:${y}px"><span class="planet" style="background:${bg}">${boss ? "☠" : n}</span>${label}</button>`;
   }
-  $("mapGrid").innerHTML = html;
+  $("mapPath").style.height = `${height}px`;
+  $("mapPath").innerHTML = html;
   $("mapInfo").textContent = `${totalStars()} ★ earned · ${Object.keys(save.stars).length} sectors cleared`;
   showOnly("map");
-  const next = $("mapGrid").querySelector(".next");
-  if (next) next.scrollIntoView({ block: "center" });
+  const [, cy] = pos(save.level);
+  $("mapScroll").scrollTop = cy - $("mapScroll").clientHeight / 2;
 }
-$("mapGrid").addEventListener("click", (e) => {
+$("mapPath").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-n]");
   if (!b || b.disabled) return;
   initAudio();
   sfx.click();
   startLevel(Number(b.dataset.n));
 });
-for (const kind of Object.keys(BOOSTS)) {
-  const el = $("boost-" + kind);
-  el.addEventListener("pointerdown", (e) => {
-    e.preventDefault();
-    initAudio();
-    spendBoost(kind);
+
+function showHangar() {
+  G.phase = "hangar";
+  showOnly("hangar");
+  let html = "";
+  SKINS.forEach((s, i) => {
+    const locked = save.pilot.level < s.level;
+    const on = save.skin === s.id;
+    const act = locked ? `🔒 LV ${s.level}` : on ? "EQUIPPED" : "EQUIP";
+    html += `<button class="skin ${locked ? "locked" : ""} ${on ? "on" : ""}" data-skin="${s.id}"><canvas data-color="${i % COLORS.length}"></canvas>` +
+      `<div><div class="nm">${s.name.toUpperCase()}</div><div class="small">${s.blurb}</div></div><span class="act">${act}</span></button>`;
   });
+  $("skinList").innerHTML = html;
+  for (const c of $("skinList").querySelectorAll("canvas")) paintPreview(c, c.parentElement.dataset.skin, Number(c.dataset.color));
 }
+$("skinList").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-skin]");
+  if (!b) return;
+  const skin = SKINS.find((s) => s.id === b.dataset.skin);
+  initAudio();
+  if (save.pilot.level < skin.level) return sfx.error();
+  save.skin = skin.id;
+  persist();
+  sfx.unlock();
+  showHangar();
+});
+
 function pause() {
   if (G.phase !== "play") return;
   G.phase = "pause";
-  $("pauseInfo").textContent = `Sector ${G.n}  ·  ${G.queue.length - G.q} enemies left`;
+  $("pauseInfo").textContent = `Sector ${G.n} · ${G.queue.length - G.q} saucers · ${inHangar()} rockets left`;
   showOnly("pause");
 }
 function resume() {
@@ -1349,7 +1532,6 @@ function syncToggles() {
 const onTap = (id, fn) =>
   $(id).addEventListener("click", () => {
     initAudio();
-    if (audio && audio.state === "suspended") audio.resume();
     sfx.click();
     fn();
   });
@@ -1360,13 +1542,27 @@ onTap("restartBtn", () => startLevel(G.n));
 onTap("menuBtn", showMenu);
 onTap("nextBtn", () => startLevel(G.n + 1));
 onTap("replayBtn", () => startLevel(G.n));
-onTap("retryBtn", () => startLevel(G.n));
-onTap("loseMenuBtn", showMenu);
-onTap("mapBtn", showMap);
-onTap("mapBackBtn", showMenu);
 onTap("winMapBtn", showMap);
+onTap("retryBtn", () => {
+  settleLoss();
+  startLevel(G.n);
+});
+onTap("loseMenuBtn", () => {
+  settleLoss();
+  showMenu();
+});
 onTap("contBay", () => continueWith("bay"));
 onTap("contUndo", () => continueWith("undo"));
+onTap("mapBtn", showMap);
+onTap("mapBack", showMenu);
+onTap("hangarBtn", showHangar);
+onTap("hangarBack", showMenu);
+onTap("howBtn", () => {
+  G.phase = "how";
+  showOnly("how");
+});
+onTap("howBack", showMenu);
+onTap("luBtn", closeLevelUp);
 onTap("sndBtn", () => {
   save.sound = !save.sound;
   syncToggles();
@@ -1380,11 +1576,14 @@ onTap("vibBtn", () => {
 });
 syncToggles();
 
-// Android back button: pause first, then resume / go to the menu; on the menu the app closes.
+// Android back button: closes what is on top; on the menu the app closes.
 window.__back = () => {
-  if (G.phase === "play") return pause(), true;
-  if (G.phase === "pause") return resume(), true;
-  if (G.phase === "win" || G.phase === "lose" || G.phase === "map") return showMenu(), true;
+  const p = G.phase;
+  if (p === "play") return pause(), true;
+  if (p === "pause") return resume(), true;
+  if (p === "levelup") return closeLevelUp(), true;
+  if (p === "lose") return settleLoss(), showMenu(), true;
+  if (p === "win" || p === "map" || p === "hangar" || p === "how") return showMenu(), true;
   return false;
 };
 window.__pause = pause;
@@ -1394,7 +1593,8 @@ document.addEventListener("visibilitychange", () => {
 
 // Hook for automated checks (drives the game without touch input).
 window.__sifi = {
-  state: () => ({ phase: G.phase, n: G.n, q: G.q, total: G.queue && G.queue.length, bays: G.bays, hull: G.hull, score: G.score }),
+  state: () => ({ phase: G.phase, n: G.n, q: G.q, total: G.queue && G.queue.length, bays: G.bays, hull: G.hull, score: G.score,
+    rockets: G.ships ? G.ships.length : 0, pilot: save.pilot, streak: save.streak }),
   solution: () => G.solution.slice(),
   tap: (id) => tapShip(id),
   start: (n) => startLevel(n),
@@ -1410,6 +1610,7 @@ function frame(now) {
   last = now;
   update(dt);
   draw();
+  updateHud();
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);

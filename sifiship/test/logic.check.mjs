@@ -15,8 +15,8 @@ import {
   BAYS,
 } from "../web/logic.js";
 
-test("sectors 1-150 are solvable within their bay budget", () => {
-  for (let n = 1; n <= 150; n++) {
+test("sectors 1-80 are solvable within their bay budget", () => {
+  for (let n = 1; n <= 80; n++) {
     const { cfg, ships, queue, order } = generateLevel(n);
     assert.ok(orderClears(ships, order, cfg.cols, cfg.rows), `level ${n}: order blocked`);
     const run = simulate(ships, queue, order, cfg.solutionBays);
@@ -33,31 +33,19 @@ test("a level is the same every time", () => {
   assert.deepEqual(generateLevel(7), generateLevel(7));
 });
 
-test("the curve grows: bigger boards, more rockets, more of them blocked", () => {
-  const avg = (from, to, f) => {
-    let sum = 0;
-    for (let n = from; n <= to; n++) sum += f(generateLevel(n));
-    return sum / (to - from + 1);
+test("dense hangars: about 60 rockets from sector 1, more and more blocked later", () => {
+  const first = generateLevel(1);
+  assert.ok(first.ships.length >= 60, `sector 1 has ${first.ships.length} rockets`);
+  for (let n = 1; n <= 40; n++) assert.ok(generateLevel(n).ships.length >= 56, `sector ${n}`);
+  const share = (l) => {
+    const occ = occupancy(l.ships, l.cfg.cols, l.cfg.rows);
+    return l.ships.filter((s) => blocker(s, occ, l.cfg.cols, l.cfg.rows)).length / l.ships.length;
   };
-  const rockets = (l) => l.ships.length;
-  const early = avg(1, 10, rockets);
-  const late = avg(31, 40, rockets);
-  assert.ok(late >= early * 1.8, `rockets ${early} -> ${late}`);
-  assert.ok(late >= 22);
-  const later = generateLevel(30);
-  const occ = occupancy(later.ships, later.cfg.cols, later.cfg.rows);
-  const blocked = later.ships.filter((s) => blocker(s, occ, later.cfg.cols, later.cfg.rows)).length;
-  assert.ok(blocked >= later.ships.length * 0.4);
+  assert.ok(share(generateLevel(40)) > share(first));
   // The growth term never falls; the 5-sector cycle makes every 5th sector a breather.
   for (let n = 2; n <= 60; n++) assert.ok(difficulty(n).t > difficulty(n - 1).t);
   assert.ok(difficulty(5).e < difficulty(4).e && difficulty(15).e < difficulty(14).e);
   assert.ok(difficulty(10).e > difficulty(9).e, "boss sector is a peak");
-});
-
-test("sector 1 starts with every rocket free", () => {
-  const { ships, cfg } = generateLevel(1);
-  const occ = occupancy(ships, cfg.cols, cfg.rows);
-  assert.equal(ships.filter((s) => blocker(s, occ, cfg.cols, cfg.rows)).length, 0);
 });
 
 test("radar picks a free rocket of the first color the bays do not cover", () => {

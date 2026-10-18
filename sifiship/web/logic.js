@@ -25,7 +25,7 @@ export const COLORS = [
 export const BAYS = 5;
 
 /** Shots a ship carries, by its length in cells. */
-export const AMMO = { 2: 4, 3: 6, 4: 8 };
+export const AMMO = { 2: 3, 3: 4, 4: 6 };
 
 /** Bays a player can open with the +1 bay booster, on top of BAYS. */
 export const EXTRA_BAYS = 1;
@@ -48,31 +48,34 @@ export function difficulty(n) {
 /** How a sector number turns into grid size, colors, rocket count and pressure. */
 export function levelConfig(n) {
   const { t, e } = difficulty(n);
-  const cols = 5 + Math.round(3 * t); // 5..8
-  const rows = 6 + Math.round(4 * t); // 6..10
+  // A dense hangar from the first sector (about 60 rockets), growing to about 75.
+  const cols = 12 + Math.round(t); // 12..13
+  const rows = 15 + Math.round(t); // 15..16
   return {
     level: n,
     t,
     e,
     cols,
     rows,
-    colors: Math.min(COLORS.length, 3 + Math.floor(5 * t)),
-    // Share of the hangar covered by rockets: 55% at the start, up to 82% (about the most a grid can hold
-    // while every rocket still has some launch order that frees it).
-    fill: 0.55 + 0.27 * e,
-    // Share of rockets that start blocked (no blocking in sector 1 so the first launch always works).
-    blockTarget: n === 1 ? 0 : 0.3 + 0.35 * e,
+    colors: Math.min(COLORS.length, 3 + Math.floor(6 * t)),
+    // Share of the hangar covered by rockets: 72% at the start, up to 76% (about the most a grid this size
+    // holds while every rocket still has some launch order that frees it).
+    fill: 0.72 + 0.04 * e,
+    // Never fewer rockets than this (about 60 at the start, 66 on the biggest hangar).
+    minShips: Math.round(60 + 6 * t),
+    // Share of rockets that start blocked.
+    blockTarget: 0.25 + 0.3 * e,
     // How strongly placement prefers spots that block rockets already placed: builds launch-order chains.
-    chainBias: 0.3 + 0.6 * e,
-    // Long cruisers (4 cells, 8 shots) join on wider boards.
-    cruisers: cols >= 7 ? 0.04 + 0.06 * e : 0,
-    // Share of 3-cell rockets; it drops as sectors get harder so the same hangar holds more rockets.
-    longShare: 0.3 - 0.12 * e,
+    chainBias: 0.1 + 0.8 * e,
+    // Long cruisers (4 cells, 6 shots) are rare; 3-cell rockets get rarer as sectors get harder, so the
+    // same hangar holds more rockets.
+    cruisers: 0.02 + 0.04 * e,
+    longShare: 0.16 - 0.06 * e,
     bays: BAYS,
     // The most bays the intended solution needs at once: the rest is the player's room for mistakes.
     solutionBays: e < 0.3 ? 2 : e < 0.7 ? 3 : 4,
     // Expected thinking time per rocket (seconds); sets how fast the wave closes in (see generateLevel).
-    secondsPerShip: 4.5 - 2.3 * e,
+    secondsPerShip: 3.2 - 1.4 * e,
     boss: n % 10 === 0,
   };
 }
@@ -225,12 +228,15 @@ function tryGenerate(cfg, rng, placements) {
   const pathHits = Array.from({ length: rows }, () => new Array(cols).fill(0));
   const target = cfg.fill * cols * rows;
   let covered = 0;
+  // Placements only ever become invalid (cells fill up), so the live list just shrinks.
+  let live = placements;
   // Each new rocket needs a clear way out past the rockets already placed, but may sit in their way:
   // launching in reverse placement order always works, and earlier rockets end up blocked.
   while (covered < target) {
-    const valid = placements.filter(
+    live = live.filter(
       (p) => p.cells.every(([x, y]) => occ[y][x] === -1) && p.path.every(([x, y]) => occ[y][x] === -1),
     );
+    const valid = live;
     if (!valid.length) break;
     const roll = rng();
     const len = roll < cfg.cruisers ? 4 : roll < cfg.cruisers + cfg.longShare ? 3 : 2;
@@ -252,7 +258,7 @@ function tryGenerate(cfg, rng, placements) {
     covered += pick.len;
     ships.push(ship);
   }
-  if (covered < target * 0.9) return null;
+  if (covered < target * 0.9 || ships.length < cfg.minShips) return null;
 
   // A sector where most rockets can leave right away is no puzzle.
   const startOcc = occupancy(ships, cols, rows);
@@ -294,7 +300,12 @@ export function generateLevel(n) {
   for (let attempt = 0; attempt < 300; attempt++) {
     // If a strict target keeps failing, relax it a little every 50 attempts.
     const relax = Math.floor(attempt / 50) * 0.05;
-    const cfg = { ...base, fill: base.fill - relax, blockTarget: Math.max(0, base.blockTarget - relax) };
+    const cfg = {
+      ...base,
+      fill: base.fill - relax,
+      blockTarget: Math.max(0, base.blockTarget - relax),
+      minShips: base.minShips - Math.round(relax * 40),
+    };
     const made = tryGenerate(cfg, mulberry32(n * 7919 + attempt * 104729 + 17), placements);
     if (!made) continue;
     const shots = made.queue.length;

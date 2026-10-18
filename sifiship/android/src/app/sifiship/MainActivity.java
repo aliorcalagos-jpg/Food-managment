@@ -111,6 +111,7 @@ public class MainActivity extends Activity {
         if (path.endsWith(".js")) return "application/javascript";
         if (path.endsWith(".css")) return "text/css";
         if (path.endsWith(".png")) return "image/png";
+        if (path.endsWith(".woff2")) return "font/woff2";
         return "application/octet-stream";
     }
 

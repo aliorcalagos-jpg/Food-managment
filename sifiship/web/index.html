@@ -6,126 +6,284 @@
 <meta name="theme-color" content="#05060f">
 <title>SIFIship</title>
 <style>
+  @font-face { font-family: "Orbitron"; font-weight: 700; src: url(fonts/orbitron-latin-700-normal.woff2) format("woff2"); font-display: block; }
+  @font-face { font-family: "Orbitron"; font-weight: 900; src: url(fonts/orbitron-latin-900-normal.woff2) format("woff2"); font-display: block; }
+  @font-face { font-family: "Exo 2"; font-weight: 400; src: url(fonts/exo-2-latin-400-normal.woff2) format("woff2"); font-display: block; }
+  @font-face { font-family: "Exo 2"; font-weight: 600; src: url(fonts/exo-2-latin-600-normal.woff2) format("woff2"); font-display: block; }
+  @font-face { font-family: "Exo 2"; font-weight: 800; src: url(fonts/exo-2-latin-800-normal.woff2) format("woff2"); font-display: block; }
   :root {
     --bg: #05060f;
-    --panel: rgba(12, 18, 40, 0.92);
-    --line: #2a3a7a;
-    --text: #e8f1ff;
-    --dim: #8ea3d6;
-    --accent: #22e4ff;
-    --warn: #ff3b5c;
+    --glass: rgba(14, 20, 46, 0.72);
+    --glass-hi: rgba(28, 40, 84, 0.6);
+    --edge: rgba(130, 170, 255, 0.2);
+    --text: #eef4ff;
+    --dim: #8fa3d4;
+    --cyan: #22e4ff;
+    --violet: #b26bff;
+    --pink: #ff4fd8;
     --gold: #ffc23a;
+    --red: #ff3b5c;
+    --head: "Orbitron", "Exo 2", system-ui, sans-serif;
+    --body: "Exo 2", system-ui, sans-serif;
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); overflow: hidden;
-    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; user-select: none; -webkit-user-select: none;
-    touch-action: none; overscroll-behavior: none; }
-  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
-  .overlay { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; padding: 16px;
-    background: radial-gradient(ellipse at center, rgba(5, 8, 25, 0.75), rgba(2, 3, 10, 0.92)); z-index: 5; overflow-y: auto; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); overflow: hidden; font-family: var(--body);
+    user-select: none; -webkit-user-select: none; touch-action: none; overscroll-behavior: none; }
+  canvas#c { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  button { font-family: inherit; color: inherit; cursor: pointer; }
+
+  /* ---------- HUD ---------- */
+  #hud { position: fixed; top: 0; left: 0; right: 0; height: 58px; display: none; align-items: center; gap: 6px; padding: 8px 8px 0;
+    z-index: 3; pointer-events: none; }
+  #hud.show { display: flex; }
+  .glass { background: var(--glass); border: 1px solid var(--edge); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 8px 24px rgba(0, 0, 0, 0.35); }
+  .hex { clip-path: polygon(25% 3%, 75% 3%, 100% 50%, 75% 97%, 25% 97%, 0 50%); display: grid; place-items: center; font-family: var(--head);
+    font-weight: 900; color: #06101c; background: linear-gradient(160deg, #ffe39a, #ffc23a 45%, #e08a0a); }
+  .hud-pilot { display: flex; align-items: center; gap: 7px; height: 44px; padding: 0 8px 0 5px; border-radius: 14px; flex: none; }
+  .hud-pilot .hex { width: 34px; height: 30px; font-size: 13px; }
+  .hud-pilot .col { display: flex; flex-direction: column; gap: 4px; }
+  .lbl { font-family: var(--head); font-weight: 700; font-size: 9px; letter-spacing: 1.5px; color: var(--dim); text-transform: uppercase; white-space: nowrap; }
+  .mini { width: 46px; height: 4px; border-radius: 2px; background: rgba(255, 255, 255, 0.1); overflow: hidden; }
+  .mini i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--gold), var(--pink)); }
+  .hud-score { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+  .hud-score b { font-family: var(--head); font-weight: 900; font-size: 18px; letter-spacing: 1px; text-shadow: 0 0 14px rgba(34, 228, 255, 0.45); }
+  .hud-score b.hot { color: var(--gold); text-shadow: 0 0 14px rgba(255, 194, 58, 0.7); }
+  .hud-stats { display: flex; gap: 6px; height: 44px; padding: 0 8px; border-radius: 14px; align-items: center; flex: none; }
+  .stat { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 30px; }
+  .stat b { font-family: var(--head); font-weight: 900; font-size: 14px; }
+  #pauseBtn { pointer-events: auto; flex: none; width: 40px; height: 44px; border-radius: 14px; font-size: 14px; display: grid; place-items: center; padding: 0; }
+  #shieldBar { position: fixed; top: 58px; left: 12px; right: 12px; height: 4px; border-radius: 2px; background: rgba(255, 255, 255, 0.07);
+    z-index: 3; display: none; overflow: hidden; }
+  #shieldBar.show { display: block; }
+  #shieldBar i { display: block; height: 100%; width: 100%; background: linear-gradient(90deg, #22e4ff, #7cf3ff); box-shadow: 0 0 10px #22e4ff;
+    transition: width 0.2s, background 0.3s; }
+
+  /* ---------- boosters ---------- */
+  #boosts { position: fixed; left: 0; right: 0; bottom: 0; height: 66px; display: none; gap: 10px; justify-content: center; align-items: center;
+    padding: 6px 14px 10px; z-index: 3; }
+  #boosts.show { display: flex; }
+  #boosts button { flex: 1; max-width: 122px; height: 48px; border-radius: 15px; font: 800 12px var(--head); letter-spacing: 1px;
+    display: flex; align-items: center; justify-content: center; gap: 7px; position: relative; touch-action: manipulation; transition: transform 0.12s, opacity 0.2s; }
+  #boosts button i { font-style: normal; font-size: 18px; color: var(--cyan); text-shadow: 0 0 10px var(--cyan); }
+  #boosts button b { position: absolute; top: -8px; right: -6px; min-width: 22px; height: 22px; border-radius: 11px; background: linear-gradient(160deg, #ffe39a, #f0a814);
+    color: #1a1000; font: 900 11px var(--head); display: grid; place-items: center; padding: 0 6px; box-shadow: 0 0 10px rgba(255, 194, 58, 0.6); }
+  #boosts button.off { opacity: 0.35; }
+  #boosts button:active:not(.off) { transform: scale(0.93); }
+
+  /* ---------- overlays ---------- */
+  .overlay { position: fixed; inset: 0; display: none; padding: 18px 16px; z-index: 5; overflow-y: auto;
+    background: radial-gradient(ellipse at 50% 30%, rgba(30, 20, 80, 0.55), rgba(3, 4, 12, 0.88)); }
   .overlay.show { display: flex; animation: fade 0.25s ease-out; }
+  .overlay.clear { background: rgba(3, 4, 12, 0.35); }
   @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
-  .card { margin: auto; width: min(360px, 100%); background: var(--panel); border: 1px solid var(--line); border-radius: 18px;
-    padding: 24px 20px; text-align: center; box-shadow: 0 0 40px rgba(34, 228, 255, 0.15), inset 0 0 30px rgba(34, 228, 255, 0.05);
-    animation: pop 0.35s cubic-bezier(.2, 1.6, .4, 1); }
-  @keyframes pop { from { transform: scale(0.85); } to { transform: scale(1); } }
-  .logo { font-size: 44px; font-weight: 900; letter-spacing: 4px; margin: 4px 0 0;
-    background: linear-gradient(180deg, #ffffff, #22e4ff 60%, #b26bff); -webkit-background-clip: text; background-clip: text;
-    color: transparent; filter: drop-shadow(0 0 12px rgba(34, 228, 255, 0.6)); }
-  .sub { color: var(--dim); letter-spacing: 6px; font-size: 12px; font-weight: 700; text-transform: uppercase; margin-bottom: 18px; }
-  h2 { margin: 0 0 6px; font-size: 26px; letter-spacing: 3px; font-weight: 900; }
-  h2.win { color: var(--accent); text-shadow: 0 0 16px rgba(34, 228, 255, 0.7); }
-  h2.lose { color: var(--warn); text-shadow: 0 0 16px rgba(255, 59, 92, 0.7); }
+  .card { margin: auto; width: min(380px, 100%); border-radius: 24px; padding: 24px 20px 20px; text-align: center; position: relative;
+    animation: rise 0.45s cubic-bezier(.2, 1.4, .4, 1); }
+  .card::before { content: ""; position: absolute; inset: 0; border-radius: 24px; padding: 1px; pointer-events: none;
+    background: linear-gradient(160deg, rgba(34, 228, 255, 0.6), rgba(178, 107, 255, 0.25) 40%, rgba(255, 79, 216, 0.05) 70%, rgba(34, 228, 255, 0.4));
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; }
+  @keyframes rise { from { transform: translateY(24px) scale(0.94); opacity: 0; } to { transform: none; opacity: 1; } }
+  h2 { margin: 0 0 6px; font: 900 24px var(--head); letter-spacing: 3px; }
+  .t-cyan { color: var(--cyan); text-shadow: 0 0 18px rgba(34, 228, 255, 0.7); }
+  .t-red { color: var(--red); text-shadow: 0 0 18px rgba(255, 59, 92, 0.7); }
+  .t-gold { color: var(--gold); text-shadow: 0 0 18px rgba(255, 194, 58, 0.7); }
   p { color: var(--dim); margin: 6px 0; font-size: 14px; line-height: 1.45; }
-  .btn { display: block; width: 100%; margin-top: 12px; padding: 15px; border: 0; border-radius: 12px; cursor: pointer;
-    font: 800 17px/1 inherit; font-family: inherit; letter-spacing: 3px; text-transform: uppercase; color: #02121a;
-    background: linear-gradient(180deg, #7cf3ff, #12b8d9); box-shadow: 0 0 22px rgba(34, 228, 255, 0.45), inset 0 -3px 0 rgba(0, 0, 0, 0.25); }
+  .btn { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; margin-top: 12px; padding: 16px; border: 0; border-radius: 16px;
+    font: 900 15px var(--head); letter-spacing: 2.5px; text-transform: uppercase; color: #041018; position: relative; overflow: hidden;
+    background: linear-gradient(135deg, #7cf3ff, #22c6ff 45%, #8a5cff); box-shadow: 0 0 28px rgba(34, 200, 255, 0.45), inset 0 -3px 0 rgba(0, 0, 0, 0.25);
+    transition: transform 0.12s; }
+  .btn::after { content: ""; position: absolute; top: 0; bottom: 0; width: 40%; left: -60%; transform: skewX(-20deg);
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.45), transparent); animation: sheen 3.2s infinite; }
+  @keyframes sheen { 0%, 60% { left: -60%; } 100% { left: 130%; } }
   .btn:active { transform: translateY(2px) scale(0.98); }
-  .btn.ghost { background: transparent; color: var(--text); border: 1px solid var(--line); box-shadow: none; font-size: 14px; padding: 12px; }
-  .stars { font-size: 46px; letter-spacing: 6px; margin: 8px 0 4px; }
-  .stars span { display: inline-block; color: #26304f; transform: scale(0.4); transition: transform 0.35s cubic-bezier(.2, 1.8, .4, 1), color 0.2s; }
-  .stars span.on { color: var(--gold); text-shadow: 0 0 18px rgba(255, 194, 58, 0.8); transform: scale(1); }
-  .stars span.off { transform: scale(0.85); }
-  .goals { text-align: left; margin: 10px auto 2px; font-size: 13px; color: var(--dim); width: fit-content; }
-  .goals div::before { content: "○ "; }
-  .goals div.done { color: var(--text); }
-  .goals div.done::before { content: "★ "; color: var(--gold); }
-  .score { font-size: 30px; font-weight: 900; color: var(--text); margin-top: 4px; }
+  .btn.pulse { animation: breathe 1.6s ease-in-out infinite; }
+  @keyframes breathe { 50% { box-shadow: 0 0 44px rgba(34, 200, 255, 0.8), inset 0 -3px 0 rgba(0, 0, 0, 0.25); transform: scale(1.02); } }
+  .btn.gold { background: linear-gradient(135deg, #ffe9a8, #ffc23a 50%, #ff8a3d); box-shadow: 0 0 26px rgba(255, 170, 58, 0.5), inset 0 -3px 0 rgba(0, 0, 0, 0.25);
+    font-size: 12px; letter-spacing: 1.2px; }
+  .btn.ghost { background: var(--glass-hi); color: var(--text); border: 1px solid var(--edge); box-shadow: none; font-size: 12px; padding: 13px; }
+  .btn.ghost::after { display: none; }
   .row { display: flex; gap: 10px; }
   .row .btn { flex: 1; }
-  .how { text-align: left; margin: 14px 0 4px; }
-  .how div { display: flex; gap: 10px; align-items: flex-start; margin: 8px 0; font-size: 14px; color: var(--dim); }
-  .how b { color: var(--text); }
-  .how i { font-style: normal; flex: none; width: 26px; height: 26px; border-radius: 8px; background: rgba(34, 228, 255, 0.12);
-    border: 1px solid var(--line); display: grid; place-items: center; font-size: 14px; }
+
+  /* ---------- menu ---------- */
+  .logo { font: 900 46px var(--head); letter-spacing: 3px; margin: 0; line-height: 1;
+    background: linear-gradient(180deg, #ffffff 10%, #22e4ff 55%, #b26bff); -webkit-background-clip: text; background-clip: text; color: transparent;
+    filter: drop-shadow(0 0 14px rgba(34, 228, 255, 0.55)); }
+  .sub { color: var(--dim); letter-spacing: 7px; font: 700 11px var(--head); text-transform: uppercase; margin: 8px 0 18px; }
+  .pilot { display: flex; gap: 14px; align-items: center; text-align: left; padding: 14px; border-radius: 18px; background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--edge); }
+  .pilot .hex { width: 62px; height: 56px; font-size: 22px; flex: none; filter: drop-shadow(0 0 12px rgba(255, 194, 58, 0.5)); }
+  .pilot .info { flex: 1; min-width: 0; }
+  .pilot .rank { font: 900 15px var(--head); letter-spacing: 2px; color: var(--gold); }
+  .bar { height: 8px; border-radius: 4px; background: rgba(255, 255, 255, 0.08); margin: 7px 0 5px; overflow: hidden; position: relative; }
+  .bar i { display: block; height: 100%; width: 0; border-radius: 4px; background: linear-gradient(90deg, #ffc23a, #ff4fd8); box-shadow: 0 0 12px rgba(255, 79, 216, 0.6); }
+  .small { font-size: 12px; color: var(--dim); }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-top: 10px; }
+  .chip { font: 800 11px var(--head); letter-spacing: 1px; padding: 6px 10px; border-radius: 999px; background: rgba(255, 255, 255, 0.06); border: 1px solid var(--edge); }
+  .chip.gold { color: #1a1000; background: linear-gradient(135deg, #ffe39a, #ffc23a); border: 0; }
+  .chip.fire { color: #fff; background: linear-gradient(135deg, #ff8a3d, #ff3b5c); border: 0; }
   .toggles { display: flex; gap: 8px; margin-top: 12px; }
-  .toggles button { flex: 1; padding: 10px; border-radius: 10px; border: 1px solid var(--line); background: transparent;
-    color: var(--dim); font: 700 13px inherit; font-family: inherit; letter-spacing: 1px; }
-  .toggles button.on { color: var(--text); border-color: var(--accent); background: rgba(34, 228, 255, 0.1); }
-  #pauseBtn { position: fixed; top: 10px; right: 10px; width: 42px; height: 42px; border-radius: 12px; z-index: 4;
-    border: 1px solid var(--line); background: rgba(12, 18, 40, 0.75); color: var(--text); font-size: 16px; display: none; }
-  #pauseBtn.show { display: block; }
-  .rank { font-weight: 900; letter-spacing: 3px; font-size: 15px; color: var(--gold); margin-top: 12px; }
-  .rank.up { animation: glow 1s ease-in-out 3; }
-  @keyframes glow { 50% { text-shadow: 0 0 18px var(--gold); transform: scale(1.12); } }
-  .bar { height: 6px; border-radius: 3px; background: rgba(255, 255, 255, 0.08); margin: 6px auto 3px; width: 80%; overflow: hidden; }
-  .bar i { display: block; height: 100%; background: linear-gradient(90deg, #ffc23a, #ff4fd8); border-radius: 3px; transition: width 0.8s; }
-  .to { font-size: 12px; color: var(--dim); }
-  .reward { color: var(--gold); font-weight: 800; font-size: 14px; min-height: 18px; margin-top: 6px; }
-  .btn.gold { background: linear-gradient(180deg, #ffe39a, #f0a814); box-shadow: 0 0 22px rgba(255, 194, 58, 0.45), inset 0 -3px 0 rgba(0, 0, 0, 0.25);
-    font-size: 13px; letter-spacing: 1px; }
-  #map .card { max-height: calc(100vh - 32px); display: flex; flex-direction: column; }
-  #mapGrid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; overflow-y: auto; padding: 4px; margin: 10px 0 2px; }
-  .sector { aspect-ratio: 1; border-radius: 12px; border: 1px solid var(--line); background: rgba(34, 228, 255, 0.07); color: var(--text);
-    font-family: inherit; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding: 0; }
-  .sector b { font-size: 16px; font-weight: 900; }
-  .sector span { font-size: 10px; color: var(--gold); letter-spacing: 1px; }
-  .sector.boss { border-color: rgba(255, 59, 92, 0.6); background: rgba(255, 59, 92, 0.1); }
-  .sector.next { border-color: var(--accent); box-shadow: 0 0 14px rgba(34, 228, 255, 0.6); animation: pulse 1.4s infinite; }
-  .sector.next span { color: var(--accent); font-weight: 900; }
-  .sector.locked { opacity: 0.35; }
-  .sector:active:not(:disabled) { transform: scale(0.94); }
-  @keyframes pulse { 50% { box-shadow: 0 0 22px rgba(34, 228, 255, 0.9); } }
-  #boosts { position: fixed; left: 0; right: 0; bottom: 0; height: 66px; display: none; gap: 10px; justify-content: center; align-items: center;
-    padding: 6px 16px 10px; z-index: 4; }
-  #boosts.show { display: flex; }
-  #boosts button { flex: 1; max-width: 120px; height: 48px; border-radius: 14px; border: 1px solid var(--line); background: rgba(12, 18, 40, 0.85);
-    color: var(--text); font: 800 12px inherit; font-family: inherit; letter-spacing: 1px; display: flex; align-items: center; justify-content: center;
-    gap: 6px; position: relative; touch-action: manipulation; }
-  #boosts button i { font-style: normal; font-size: 18px; color: var(--accent); }
-  #boosts button b { position: absolute; top: -7px; right: -5px; min-width: 20px; height: 20px; border-radius: 10px; background: var(--gold);
-    color: #1a1000; font-size: 11px; display: grid; place-items: center; padding: 0 5px; }
-  #boosts button.off { opacity: 0.38; }
-  #boosts button:active:not(.off) { transform: scale(0.95); }
+  .toggles button { flex: 1; padding: 10px; border-radius: 12px; border: 1px solid var(--edge); background: transparent; color: var(--dim); font: 700 12px var(--body); letter-spacing: 1px; }
+  .toggles button.on { color: var(--text); border-color: rgba(34, 228, 255, 0.6); background: rgba(34, 228, 255, 0.1); }
+  .how div { display: flex; gap: 12px; align-items: flex-start; margin: 10px 0; font-size: 14px; color: var(--dim); text-align: left; }
+  .how b { color: var(--text); }
+  .how i { font-style: normal; flex: none; width: 30px; height: 30px; border-radius: 10px; background: rgba(34, 228, 255, 0.12); border: 1px solid var(--edge);
+    display: grid; place-items: center; font-size: 15px; color: var(--cyan); }
+
+  /* ---------- win ---------- */
+  .stars { display: flex; justify-content: center; gap: 10px; margin: 10px 0 6px; height: 64px; align-items: flex-end; }
+  .stars span { font-size: 48px; line-height: 1; color: #1f2847; transform: scale(0.3); transition: transform 0.45s cubic-bezier(.2, 1.9, .4, 1), color 0.2s;
+    filter: drop-shadow(0 2px 0 rgba(0, 0, 0, 0.5)); }
+  .stars span:nth-child(2) { font-size: 60px; }
+  .stars span.on { color: var(--gold); transform: scale(1); filter: drop-shadow(0 0 16px rgba(255, 194, 58, 0.9)); }
+  .stars span.off { transform: scale(0.85); }
+  .goals { text-align: left; margin: 6px auto 4px; font-size: 13px; color: var(--dim); width: fit-content; }
+  .goals div { margin: 2px 0; }
+  .goals div::before { content: "○  "; }
+  .goals div.done { color: var(--text); }
+  .goals div.done::before { content: "★  "; color: var(--gold); }
+  .score { font: 900 34px var(--head); margin-top: 6px; letter-spacing: 1px; }
+  .badge-new { display: inline-block; font: 900 10px var(--head); letter-spacing: 2px; padding: 4px 8px; border-radius: 6px; color: #1a1000;
+    background: linear-gradient(135deg, #ffe39a, #ffc23a); animation: pop 0.5s cubic-bezier(.2, 2, .4, 1); }
+  @keyframes pop { from { transform: scale(0); } to { transform: scale(1); } }
+  .xpbox { margin-top: 14px; padding: 12px; border-radius: 16px; background: rgba(255, 255, 255, 0.04); border: 1px solid var(--edge); text-align: left; }
+  .xphead { display: flex; align-items: center; gap: 10px; }
+  .xphead .hex { width: 40px; height: 36px; font-size: 15px; flex: none; transition: transform 0.3s; }
+  .xphead .hex.bump { animation: bump 0.6s cubic-bezier(.2, 2, .4, 1); }
+  @keyframes bump { 40% { transform: scale(1.4); } }
+  .xphead .col { flex: 1; }
+  .xpgain { font: 900 16px var(--head); color: var(--gold); text-shadow: 0 0 10px rgba(255, 194, 58, 0.6); }
+  .xpparts { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+  .xpparts span { font-size: 11px; padding: 3px 8px; border-radius: 999px; background: rgba(255, 255, 255, 0.05); color: var(--dim); opacity: 0; animation: in 0.3s forwards; }
+  .xpparts span b { color: var(--text); }
+  @keyframes in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+  /* ---------- level up ---------- */
+  #levelup { align-items: center; justify-content: center; background: radial-gradient(circle at 50% 40%, rgba(255, 194, 58, 0.25), rgba(3, 4, 12, 0.92) 60%); }
+  .rays { position: absolute; left: 50%; top: 38%; width: 900px; height: 900px; margin: -450px 0 0 -450px; pointer-events: none; opacity: 0.35;
+    background: repeating-conic-gradient(rgba(255, 210, 120, 0.35) 0 6deg, transparent 6deg 18deg); animation: spin 18s linear infinite;
+    -webkit-mask: radial-gradient(circle, #000 0, transparent 60%); mask: radial-gradient(circle, #000 0, transparent 60%); }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .lu { position: relative; text-align: center; width: min(380px, 100%); }
+  .lu h1 { font: 900 40px var(--head); margin: 0; letter-spacing: 4px; background: linear-gradient(180deg, #fff, #ffc23a 60%, #ff8a3d);
+    -webkit-background-clip: text; background-clip: text; color: transparent; filter: drop-shadow(0 0 18px rgba(255, 170, 58, 0.7));
+    animation: slam 0.6s cubic-bezier(.2, 1.6, .4, 1); }
+  @keyframes slam { from { transform: scale(2.4); opacity: 0; filter: blur(8px); } to { transform: none; opacity: 1; } }
+  .lu .hex { width: 120px; height: 108px; margin: 18px auto 8px; font-size: 44px; filter: drop-shadow(0 0 30px rgba(255, 194, 58, 0.8));
+    animation: pop 0.6s 0.25s cubic-bezier(.2, 2, .4, 1) both; }
+  .lu .rank { font: 900 16px var(--head); letter-spacing: 3px; color: var(--text); }
+  .rewards { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin: 18px 0 8px; }
+  .reward { width: 100px; padding: 12px 8px; border-radius: 16px; text-align: center; opacity: 0; animation: flip 0.5s forwards; }
+  @keyframes flip { from { opacity: 0; transform: perspective(400px) rotateY(90deg) scale(0.8); } to { opacity: 1; transform: none; } }
+  .reward .ic { font-size: 26px; color: var(--cyan); text-shadow: 0 0 12px var(--cyan); height: 40px; display: grid; place-items: center; }
+  .reward canvas { width: 84px; height: 40px; }
+  .reward .nm { font: 800 10px var(--head); letter-spacing: 1px; margin-top: 6px; }
+  .reward.skin { width: 140px; border-color: rgba(255, 194, 58, 0.6); }
+
+  /* ---------- map ---------- */
+  #map .card, #hangar .card { max-height: calc(100vh - 36px); display: flex; flex-direction: column; padding-bottom: 14px; }
+  .scroll { overflow-y: auto; margin: 10px -10px 0; padding: 0 10px; flex: 1; position: relative; }
+  #mapPath { position: relative; }
+  #mapPath svg { position: absolute; left: 0; top: 0; pointer-events: none; }
+  .node { position: absolute; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; gap: 3px; border: 0; background: none; padding: 0; }
+  .planet { width: 54px; height: 54px; border-radius: 50%; display: grid; place-items: center; font: 900 15px var(--head); color: #fff;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8); box-shadow: inset -8px -8px 16px rgba(0, 0, 0, 0.55), inset 4px 4px 10px rgba(255, 255, 255, 0.25), 0 0 16px rgba(0, 0, 0, 0.5); }
+  .node.boss .planet { width: 66px; height: 66px; box-shadow: inset -8px -8px 16px rgba(0, 0, 0, 0.55), 0 0 22px rgba(255, 59, 92, 0.7); }
+  .node.next .planet { animation: beacon 1.4s ease-in-out infinite; }
+  @keyframes beacon { 50% { box-shadow: inset -8px -8px 16px rgba(0, 0, 0, 0.55), 0 0 0 8px rgba(34, 228, 255, 0.25), 0 0 30px rgba(34, 228, 255, 0.9); } }
+  .node.locked { filter: grayscale(1) brightness(0.45); }
+  .node .st { font-size: 11px; color: var(--gold); letter-spacing: 1px; text-shadow: 0 0 6px rgba(0, 0, 0, 0.9); }
+  .node .you { font: 900 9px var(--head); letter-spacing: 1.5px; color: #041018; background: var(--cyan); padding: 3px 7px; border-radius: 6px; }
+
+  /* ---------- hangar ---------- */
+  .skin { display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: 16px; margin-bottom: 10px; text-align: left;
+    background: rgba(255, 255, 255, 0.04); border: 1px solid var(--edge); width: 100%; }
+  .skin canvas { width: 96px; height: 44px; flex: none; }
+  .skin > div { flex: 1; min-width: 0; }
+  .skin .nm { font: 900 13px var(--head); letter-spacing: 1.5px; }
+  .skin .act { flex: none; font: 800 9px var(--head); letter-spacing: 0.5px; padding: 8px 8px; border-radius: 10px; background: rgba(34, 228, 255, 0.12); color: var(--cyan); white-space: nowrap; }
+  .skin.on { border-color: rgba(34, 228, 255, 0.7); box-shadow: 0 0 18px rgba(34, 228, 255, 0.25); }
+  .skin.on .act { background: var(--cyan); color: #041018; }
+  .skin.locked { opacity: 0.5; }
+  .skin.locked .act { background: rgba(255, 255, 255, 0.06); color: var(--dim); }
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
-<button id="pauseBtn" aria-label="Pause">❚❚</button>
 
-<div class="overlay show" id="menu">
-  <div class="card">
+<div id="hud">
+  <div class="hud-pilot glass">
+    <div class="hex" id="hudLvl">1</div>
+    <div class="col"><span class="lbl" id="hudSector">Sector 1</span><div class="mini"><i id="hudXp"></i></div></div>
+  </div>
+  <div class="hud-score"><span class="lbl" id="hudScoreLbl">Score</span><b id="hudScore">0</b></div>
+  <div class="hud-stats glass">
+    <div class="stat"><span class="lbl">Rockets</span><b id="hudRockets">0</b></div>
+    <div class="stat"><span class="lbl">Wave</span><b id="hudWave">0</b></div>
+  </div>
+  <button id="pauseBtn" class="glass" aria-label="Pause">❚❚</button>
+</div>
+<div id="shieldBar"><i id="hudShield"></i></div>
+
+<div id="boosts">
+  <button id="boost-bay" class="glass" aria-label="Open an extra bay"><i>⊕</i>+1 BAY<b>0</b></button>
+  <button id="boost-undo" class="glass" aria-label="Undo last launch"><i>↶</i>UNDO<b>0</b></button>
+  <button id="boost-radar" class="glass" aria-label="Show a good rocket"><i>◎</i>RADAR<b>0</b></button>
+</div>
+
+<div class="overlay" id="menu">
+  <div class="card glass">
     <div class="logo">SIFISHIP</div>
     <div class="sub">Hangar Launch</div>
-    <div class="how">
-      <div><i>➤</i><span><b>Tap a rocket</b> to launch it the way its arrow points. Rockets in the way block it.</span></div>
-      <div><i>◎</i><span>Launched rockets dock in <b>5 bays</b> and shoot enemies of <b>their color</b>.</span></div>
-      <div><i>!</i><span>Fill every bay with the wrong colors and the hangar <b>jams</b>. Keep the wave off the shield.</span></div>
-      <div><i>⊕</i><span>Stuck? <b>+1 Bay</b>, <b>Undo</b> and <b>Radar</b> boosters. Earn more with 3-star clears and bosses.</span></div>
+    <div class="pilot" id="menuPilot"></div>
+    <div class="chips" id="menuChips"></div>
+    <button class="btn pulse" id="playBtn">Launch</button>
+    <div class="row">
+      <button class="btn ghost" id="mapBtn">Sector map</button>
+      <button class="btn ghost" id="hangarBtn">Hangar</button>
     </div>
-    <div id="menuRank"></div>
-    <p id="menuLevel">Sector 1</p>
-    <button class="btn" id="playBtn">Launch</button>
-    <button class="btn ghost" id="mapBtn">Sector map</button>
     <div class="toggles">
       <button id="sndBtn" class="on">Sound</button>
       <button id="vibBtn" class="on">Vibration</button>
+      <button id="howBtn">How to play</button>
     </div>
   </div>
 </div>
 
-<div class="overlay" id="pause">
-  <div class="card">
+<div class="overlay" id="how">
+  <div class="card glass">
+    <h2 class="t-cyan">FLIGHT MANUAL</h2>
+    <div class="how">
+      <div><i>➤</i><span><b>Tap a rocket</b> to launch it the way its arrow points. Rockets in the way block it.</span></div>
+      <div><i>◎</i><span>Launched rockets land on <b>5 pads</b>, aim and shoot saucers of <b>their color</b>, front of the wave first.</span></div>
+      <div><i>!</i><span>Fill every pad with the wrong colors and the hangar <b>jams</b>. Keep the wave off the shield.</span></div>
+      <div><i>⊕</i><span><b>+1 Bay</b>, <b>Undo</b> and <b>Radar</b> get you out of trouble. Level up to earn more.</span></div>
+      <div><i>★</i><span>Clear sectors for <b>XP</b>. Stars, combos, bosses and win streaks pay extra. Levels unlock new <b>hulls</b>.</span></div>
+    </div>
+    <button class="btn ghost" id="howBack">Got it</button>
+  </div>
+</div>
+
+<div class="overlay" id="map">
+  <div class="card glass">
+    <h2 class="t-cyan">SECTOR MAP</h2>
+    <p id="mapInfo"></p>
+    <div class="scroll" id="mapScroll"><div id="mapPath"></div></div>
+    <button class="btn ghost" id="mapBack">Back</button>
+  </div>
+</div>
+
+<div class="overlay" id="hangar">
+  <div class="card glass">
+    <h2 class="t-cyan">HANGAR</h2>
+    <p>Pick the hull your squadron flies. New hulls unlock as you level up.</p>
+    <div class="scroll" id="skinList"></div>
+    <button class="btn ghost" id="hangarBack">Back</button>
+  </div>
+</div>
+
+<div class="overlay clear" id="pause">
+  <div class="card glass">
     <h2>PAUSED</h2>
     <p id="pauseInfo"></p>
     <button class="btn" id="resumeBtn">Resume</button>
@@ -137,15 +295,26 @@
 </div>
 
 <div class="overlay" id="win">
-  <div class="card">
-    <h2 class="win">SECTOR CLEARED</h2>
+  <div class="card glass">
+    <h2 class="t-cyan" id="winTitle">SECTOR CLEARED</h2>
     <div class="stars" id="stars"><span>★</span><span>★</span><span>★</span></div>
     <div class="goals" id="goals"></div>
     <div class="score" id="winScore">0</div>
-    <p id="winBest"></p>
-    <div class="reward" id="winReward"></div>
-    <div id="winRank"></div>
-    <button class="btn" id="nextBtn">Next sector</button>
+    <div id="winBest" class="small"></div>
+    <div class="xpbox">
+      <div class="xphead">
+        <div class="hex" id="winLvl">1</div>
+        <div class="col">
+          <div class="lbl" id="winRank">Cadet</div>
+          <div class="bar"><i id="winXpBar"></i></div>
+          <div class="small" id="winXpText"></div>
+        </div>
+        <div class="xpgain" id="winXpGain">+0</div>
+      </div>
+      <div class="xpparts" id="xpParts"></div>
+    </div>
+    <div class="chips" id="winChips"></div>
+    <button class="btn pulse" id="nextBtn">Next sector</button>
     <div class="row">
       <button class="btn ghost" id="replayBtn">Replay</button>
       <button class="btn ghost" id="winMapBtn">Map</button>
@@ -153,30 +322,27 @@
   </div>
 </div>
 
+<div class="overlay" id="levelup">
+  <div class="rays"></div>
+  <div class="lu">
+    <h1>LEVEL UP</h1>
+    <div class="hex" id="luLevel">2</div>
+    <div class="rank" id="luRank">Pilot</div>
+    <div class="rewards" id="luRewards"></div>
+    <button class="btn gold" id="luBtn">Collect</button>
+  </div>
+</div>
+
 <div class="overlay" id="lose">
-  <div class="card">
-    <h2 class="lose" id="loseTitle">HANGAR JAMMED</h2>
+  <div class="card glass">
+    <h2 class="t-red" id="loseTitle">HANGAR JAMMED</h2>
     <p id="loseText"></p>
+    <div class="chips" id="loseChips"></div>
     <button class="btn gold" id="contBay">Continue</button>
     <button class="btn gold" id="contUndo">Continue</button>
     <button class="btn" id="retryBtn">Try again</button>
     <button class="btn ghost" id="loseMenuBtn">Menu</button>
   </div>
-</div>
-
-<div class="overlay" id="map">
-  <div class="card">
-    <h2>SECTOR MAP</h2>
-    <p id="mapInfo"></p>
-    <div id="mapGrid"></div>
-    <button class="btn ghost" id="mapBackBtn">Back</button>
-  </div>
-</div>
-
-<div id="boosts">
-  <button id="boost-bay" aria-label="Open an extra bay"><i>⊕</i>+1 BAY<b>0</b></button>
-  <button id="boost-undo" aria-label="Undo last launch"><i>↶</i>UNDO<b>0</b></button>
-  <button id="boost-radar" aria-label="Show a good rocket"><i>◎</i>RADAR<b>0</b></button>
 </div>
 
 <script type="module" src="game.js"></script>
