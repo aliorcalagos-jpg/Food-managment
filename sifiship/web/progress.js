@@ -1,9 +1,10 @@
 // Pilot progression: XP, levels, ranks, rewards and hull unlocks. No DOM, so the checks can run it in Node.
 //
 // XP to go from level L to L+1 is 100 + 150·(L−1)^1.3: 100, 250, 469, 729, 1009 … 2710 at level 10.
-// A win pays a base that grows with the sector, plus stars, a first-clear bonus, the boss bonus and the best
-// combo, all multiplied by the win streak (×1.1 per win in a row, up to ×1.5). Early levels come after one
-// sector each; by level 10 a level takes about five sectors, so there is always a bar close to filling.
+// A win pays a base that grows with the sector, plus stars, a first-clear bonus, the boss bonus, the best
+// combo and any golden rockets launched, all multiplied by the win streak (×1.1 per win in a row, up to ×1.5).
+// Early levels come after one sector each; by level 10 a level takes about five sectors, so there is always a
+// bar close to filling.
 
 export const SKINS = [
   { id: "interceptor", name: "Interceptor", level: 1, blurb: "Swept-wing striker. Standard issue." },
@@ -23,7 +24,7 @@ export const RANKS = [
   { level: 40, name: "Legend" },
 ];
 
-const BOOST_CYCLE = ["radar", "undo", "bay"];
+const BOOST_CYCLE = ["radar", "shuffle", "undo", "bay"];
 
 export function xpToNext(level) {
   return Math.round((100 + 150 * Math.pow(level - 1, 1.3)) / 10) * 10;
@@ -47,13 +48,14 @@ export function streakMultiplier(streak) {
 }
 
 /** XP for a cleared sector, with the parts listed for the win screen. `streak` counts this win. */
-export function winXp({ sector, stars, firstClear, boss, maxCombo, streak }) {
+export function winXp({ sector, stars, firstClear, boss, maxCombo, streak, golds = 0 }) {
   const base = 100 + 8 * sector;
   const parts = [{ label: "Sector cleared", xp: base }];
   parts.push({ label: `${stars} star${stars === 1 ? "" : "s"}`, xp: 40 * stars });
   if (firstClear) parts.push({ label: "First clear", xp: Math.round(base / 2) });
   if (boss) parts.push({ label: "Boss destroyed", xp: 150 });
   if (maxCombo > 1) parts.push({ label: `Combo x${maxCombo}`, xp: 10 * maxCombo });
+  if (golds > 0) parts.push({ label: `Golden rocket${golds === 1 ? "" : "s"} x${golds}`, xp: 40 * golds });
   const sum = parts.reduce((a, p) => a + p.xp, 0);
   const mult = streakMultiplier(streak);
   return { parts, mult, total: Math.round(sum * mult) };

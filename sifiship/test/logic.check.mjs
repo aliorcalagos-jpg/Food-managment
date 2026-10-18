@@ -12,6 +12,8 @@ import {
   pickShooter,
   radarHint,
   difficulty,
+  warpStorm,
+  mulberry32,
   BAYS,
 } from "../web/logic.js";
 
@@ -82,4 +84,32 @@ test("the matching ship with fewest shots fires; ships still flying in do not", 
   ];
   assert.equal(pickShooter(bays, 1), 1);
   assert.equal(pickShooter(bays, 2), -1);
+});
+
+test("warp storms keep every color's shots and leave the sector solvable from the current bays", () => {
+  for (const n of [3, 8, 15, 30, 60]) {
+    const { cfg, ships } = generateLevel(n);
+    // Mid-sector: the first 12 rockets of the intended order are gone, two of them still docked. As in the
+    // game, what is left of the wave is the docked rockets' shots plus the hangar's.
+    const order = ships.map((s) => s.id).reverse();
+    const goneIds = new Set(order.slice(0, 12));
+    const docked = order.slice(10, 12).map((id) => ({ color: ships[id].color, ammo: ships[id].cap - 1 }));
+    const left = ships.filter((s) => !goneIds.has(s.id));
+    const rest = [...docked, ...left.map((s) => ({ color: s.color, ammo: s.cap }))].flatMap((b) => new Array(b.ammo).fill(b.color));
+    const bays = [...docked, null, null, null];
+    for (const helpful of [false, true]) {
+      const storm = warpStorm(left, bays, cfg.cols, cfg.rows, mulberry32(n), { helpful, budget: 4 });
+      assert.ok(storm, `sector ${n}: a storm fits`);
+      const recolored = left.map((s) => ({ ...s, color: storm.colors.get(s.id) }));
+      for (const len of [2, 3, 4]) {
+        const before = left.filter((s) => s.len === len).map((s) => s.color).sort();
+        const after = recolored.filter((s) => s.len === len).map((s) => s.color).sort();
+        assert.deepEqual(after, before, `sector ${n}: colors per length kept`);
+      }
+      assert.deepEqual([...storm.queue].sort(), [...rest].sort(), `sector ${n}: same saucers per color`);
+      const ids = recolored.map((s) => s.id).sort((a, b) => b - a);
+      assert.ok(simulate(recolored, storm.queue, ids, 4, bays).ok, `sector ${n}: still solvable`);
+      assert.ok(recolored.filter((s, i) => s.color !== left[i].color).length >= left.length / 3, "visibly shuffled");
+    }
+  }
 });

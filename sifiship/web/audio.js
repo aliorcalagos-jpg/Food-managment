@@ -102,6 +102,12 @@ export const sfx = {
     tone(1568, 0.6, "sine", 0.15, 2093, 0.45);
   },
   unlock: () => tone(660, 0.12, "triangle", 0.2, 1320),
+  gold: () => [988, 1319, 1760].forEach((f, i) => tone(f, 0.18, "triangle", 0.2, null, i * 0.06)),
+  storm: () => {
+    noise(0.7, 0.18, 2600);
+    tone(90, 0.7, "sawtooth", 0.1, 380);
+    tone(1200, 0.5, "sine", 0.07, 300, 0.1);
+  },
   click: () => tone(700, 0.05, "triangle", 0.15),
 };
 

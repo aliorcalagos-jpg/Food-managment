@@ -2,14 +2,14 @@
 # Builds the signed, installable Android APK of SIFIship (Android 7+, works offline).
 # Needs: aapt, dx, zipalign, apksigner, keytool, javac and an android.jar (apt: aapt dalvik-exchange
 # apksigner zipalign android-sdk-platform-23 default-jdk-headless).
-# Output: sifiship/dist/SIFIship-V.3.apk, signed with sifiship/android/sifiship.keystore (created on first run;
+# Output: sifiship/dist/SIFIship-V.4.apk, signed with sifiship/android/sifiship.keystore (created on first run;
 # keep it: later versions must be signed with the same key to install over this one).
 set -euo pipefail
 cd "$(dirname "$0")"
 
 SDK_JAR=${ANDROID_JAR:-/usr/lib/android-sdk/platforms/android-23/android.jar}
 OUT=android/build
-APK=dist/SIFIship-V.3.apk
+APK=dist/SIFIship-V.4.apk
 KEYSTORE=${KEYSTORE:-android/sifiship.keystore}
 PASS=${KEYSTORE_PASSWORD:-sifiship}
 

@@ -1,6 +1,6 @@
 // SIFIship: game loop, motion, drawing, input and screens. Rules: logic.js. Progression: progress.js.
 // Sprites: render.js. Sound: audio.js.
-import { COLORS, DIRS, BAYS, EXTRA_BAYS, generateLevel, occupancy, blocker, pickShooter, radarHint } from "./logic.js";
+import { COLORS, DIRS, BAYS, EXTRA_BAYS, generateLevel, occupancy, blocker, pickShooter, radarHint, warpStorm } from "./logic.js";
 import { SKINS, xpToNext, addXp, winXp, lossXp, rankFor, levelRewards, nextUnlock, streakMultiplier } from "./progress.js";
 import { setDpr, shipSprite, shadowSprite, glowSprite, saucerSprite, padSprite, hangarTexture, backdrop, drawSprite, rgba } from "./render.js";
 import { sfx, buzz, initAudio, bindSettings } from "./audio.js";
@@ -37,7 +37,7 @@ const defaults = {
   stars: {},
   sound: true,
   vibrate: true,
-  boost: { bay: 2, undo: 3, radar: 3 },
+  boost: { bay: 2, undo: 3, radar: 3, shuffle: 2 },
   pilot: { level: 1, xp: 0 },
   skin: "interceptor",
   streak: 0,
@@ -78,19 +78,20 @@ function layout() {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   L.hudH = 66;
   L.enemyTop = L.hudH + 4;
-  L.shieldY = L.enemyTop + Math.min(170, Math.max(86, L.H * 0.15));
+  // The enemy zone is kept slim (10% of the height, 60-104 px) so the hangar gets the room.
+  L.shieldY = L.enemyTop + Math.min(104, Math.max(60, L.H * 0.1));
   L.slots = BAYS + EXTRA_BAYS;
   L.bayGap = 6;
-  L.bayW = Math.min((L.W - 28 - (L.slots - 1) * L.bayGap) / L.slots, 60);
-  L.bayH = L.bayW * 1.12;
-  L.bayTop = L.shieldY + 10;
+  L.bayW = Math.min((L.W - 28 - (L.slots - 1) * L.bayGap) / L.slots, 54);
+  L.bayH = L.bayW * 1.08;
+  L.bayTop = L.shieldY + 8;
   L.bayY = L.bayTop + L.bayH / 2;
-  L.gridTop = L.bayTop + L.bayH + 24;
+  L.gridTop = L.bayTop + L.bayH + 22;
   L.boostH = 66;
-  L.perRow = 9;
-  L.sx = Math.min((L.W - 30) / L.perRow, 40);
-  L.rowH = L.sx * 0.72;
-  L.enemyR = L.sx * 0.42;
+  L.perRow = 11;
+  L.sx = Math.min((L.W - 24) / L.perRow, 32);
+  L.rowH = L.sx * 0.62;
+  L.enemyR = L.sx * 0.4;
   if (G.cfg) placeGrid();
   stars.forEach((s) => (s.x = Math.random() * L.W));
 }
@@ -98,7 +99,7 @@ function placeGrid() {
   const { cols, rows } = G.cfg;
   const frame = 10;
   const availH = L.H - L.gridTop - L.boostH - frame * 2 - 4;
-  L.cell = Math.max(14, Math.floor(Math.min((L.W - 16 - frame * 2) / cols, availH / rows)));
+  L.cell = Math.max(14, Math.floor(Math.min((L.W - 8 - frame * 2) / cols, availH / rows)));
   L.gx = Math.round((L.W - L.cell * cols) / 2);
   L.gy = Math.round(L.gridTop + frame + Math.max(0, (availH - L.cell * rows) / 2));
   // Sprite sizes: a rocket in the hangar, and the same rocket on a landing pad.
@@ -162,8 +163,15 @@ function startLevel(n) {
   G.hintId = -1;
   G.hintUntil = 0;
   G.pendingLoss = false;
+  G.golds = 0;
+  G.storms = 0;
+  G.stormLeft = lv.cfg.stormEvery;
+  G.stormAt = 0;
+  G.stormUntil = 0;
+  G.waveFlip = null;
   refreshOcc();
   placeGrid();
+  pickGold();
   for (const k of Object.keys(fx)) if (Array.isArray(fx[k])) fx[k] = [];
   G.phase = "play";
   showOnly(null);
@@ -189,7 +197,7 @@ function shipCenter(s) {
   return [L.gx + (s.x + w / 2) * L.cell, L.gy + (s.y + h / 2) * L.cell];
 }
 function enemySlotPos(slot) {
-  const frontY = L.shieldY - 14 - (1 - G.threat) * L.rowH * 1.6;
+  const frontY = L.shieldY - 10 - (1 - G.threat) * L.rowH * 1.1;
   const at = (k) => {
     const r = Math.floor(k / L.perRow);
     const c = k % L.perRow;
@@ -277,7 +285,7 @@ function shipAt(px, py) {
 
 function tapShip(id) {
   const s = G.ships[id];
-  if (!s || s.state !== "grid" || G.t - G.start < 0.35) return false;
+  if (!s || s.state !== "grid" || G.t - G.start < 0.35 || G.t < G.stormUntil) return false;
   G.lastTap = G.t;
   const block = blocker(s, G.occ, G.cfg.cols, G.cfg.rows);
   if (block) {
@@ -306,6 +314,19 @@ function tapShip(id) {
   G.hintId = -1;
   sfx.press();
   buzz("tick");
+  if (s.gold) {
+    s.gold = false;
+    G.golds++;
+    G.score += 500;
+    const [x, y] = shipCenter(s);
+    floatText("GOLDEN +500", x, y - 26, "#ffd75a", 22, 1.2, "gold");
+    sparks(x, y, "#ffd75a", 26, 260);
+    ring(x, y, "#ffd75a", L.cell * 2.4, 0.5, 3);
+    sfx.gold();
+    buzz("long");
+  }
+  // The storm strikes shortly after the launch that charges it; launches meanwhile do not push it back.
+  if (G.cfg.stormEvery > 0 && !G.stormAt && --G.stormLeft <= 0) G.stormAt = G.t + 0.45;
   if (G.t - G.lastLaunch < CHAIN_WINDOW) {
     G.chain++;
     const [x, y] = shipCenter(s);
@@ -320,6 +341,7 @@ function tapShip(id) {
 const BOOSTS = {
   bay: { label: "Extra pad", icon: "⊕" },
   undo: { label: "Undo", icon: "↶" },
+  shuffle: { label: "Shuffle", icon: "⇄" },
   radar: { label: "Radar", icon: "◎" },
 };
 function canBoost(kind) {
@@ -327,6 +349,7 @@ function canBoost(kind) {
   if (kind === "bay") return G.bays.length < L.slots;
   if (kind === "undo") return undoTarget() !== -1;
   if (kind === "radar") return inHangar() > 0;
+  if (kind === "shuffle") return inHangar() >= 2 && G.t >= G.stormUntil && !G.stormAt;
   return false;
 }
 /** The last launched rocket that is docked and has not fired yet (it can go back to the hangar). */
@@ -365,6 +388,12 @@ function spendBoost(kind) {
     const [x, y] = shipCenter(s);
     ring(x, y, COLORS[s.color].glow, L.cell * s.len * 0.7, 0.45);
     flashAt(bayX(i), L.bayY, "#ffffff", L.bayW * 0.8);
+  } else if (kind === "shuffle") {
+    if (!runStorm(true)) {
+      save.boost.shuffle++; // nothing valid to shuffle into: give it back
+      persist();
+      floatText("NO BETTER SHUFFLE", L.W / 2, L.gy - 16, "#8fa3d4", 14, 1);
+    }
   } else if (kind === "radar") {
     const hint = radarHint(G.ships.filter((s) => s.state === "grid"), G.queue, G.q, G.bays, G.cfg.cols, G.cfg.rows);
     G.hintId = hint ? hint.id : -1;
@@ -375,6 +404,51 @@ function spendBoost(kind) {
   syncBoosts();
   return true;
 }
+// ---------- warp storms and the golden rocket ----------
+/** Marks one rocket golden; blocked ones are preferred, so reaching it takes a plan. */
+function pickGold() {
+  for (const s of G.ships) s.gold = false;
+  const left = G.ships.filter((s) => s.state === "grid");
+  if (left.length < 4) return;
+  const occ = G.occ;
+  const blocked = left.filter((s) => blocker(s, occ, G.cfg.cols, G.cfg.rows));
+  const pool = blocked.length ? blocked : left;
+  pool[Math.floor(Math.random() * pool.length)].gold = true;
+}
+
+/**
+ * A warp storm (or the Shuffle booster, `helpful`): rockets in the hangar and the saucers still to come flip to
+ * new colors, re-formed so the sector stays winnable from the pads as they are. Returns false if no storm fit.
+ */
+function runStorm(helpful) {
+  const left = G.ships.filter((s) => s.state === "grid" || s.state === "bounce");
+  const bays = G.bays.map((b) => (b ? { color: b.color, ammo: b.ammo } : null));
+  const budget = Math.min(G.bays.length, G.cfg.solutionBays + 1);
+  const storm = warpStorm(left, bays, G.cfg.cols, G.cfg.rows, Math.random, { helpful, budget });
+  if (!storm) return false;
+  G.storms++;
+  const cx = L.gx + (G.cfg.cols * L.cell) / 2;
+  const cy = L.gy + (G.cfg.rows * L.cell) / 2;
+  for (const s of left) {
+    const [x, y] = shipCenter(s);
+    // a flip that ripples out from the hangar's center
+    s.flip = { t0: G.t + Math.hypot(x - cx, y - cy) / (L.cell * 30), from: s.color };
+    s.color = storm.colors.get(s.id);
+  }
+  G.waveFlip = { t0: G.t, from: G.queue.slice(G.q, G.q + 80), q: G.q };
+  G.queue = G.queue.slice(0, G.q).concat(storm.queue);
+  G.stormUntil = G.t + 0.75;
+  G.stormFx = G.t;
+  G.hintId = -1;
+  pickGold();
+  fx.shake = Math.max(fx.shake, 6);
+  fx.texts = fx.texts.filter((t) => t.key !== "chain");
+  floatText(helpful ? "SHUFFLE" : "WARP STORM", L.W / 2, cy, helpful ? "#22e4ff" : "#d58bff", 30, 1.2, "storm");
+  sfx.storm();
+  buzz("long");
+  return true;
+}
+
 function syncBoosts() {
   for (const kind of Object.keys(BOOSTS)) {
     const el = $("boost-" + kind);
@@ -423,10 +497,17 @@ function update(dt) {
     }
   G.bayShake = Math.max(0, (G.bayShake || 0) - dt);
   G.qAnim += (G.q - G.qAnim) * Math.min(1, dt * 9);
+  if (G.waveFlip && G.t - G.waveFlip.t0 > 2) G.waveFlip = null;
   G.boostSync = (G.boostSync || 0) - dt;
   if (G.boostSync <= 0) {
     syncBoosts();
     G.boostSync = 0.2;
+  }
+
+  if (G.stormAt && G.t >= G.stormAt && G.phase === "play") {
+    G.stormAt = 0;
+    G.stormLeft = G.cfg.stormEvery;
+    runStorm(false);
   }
 
   if (G.phase === "ending") {
@@ -661,7 +742,7 @@ function finish() {
     const starsWon = 1 + (hullOk ? 1 : 0) + (baysOk ? 1 : 0);
     const before = save.stars[G.n] || 0;
     save.streak += 1;
-    const xp = winXp({ sector: G.n, stars: starsWon, firstClear: !before, boss: G.cfg.boss, maxCombo: G.maxMult, streak: save.streak });
+    const xp = winXp({ sector: G.n, stars: starsWon, firstClear: !before, boss: G.cfg.boss, maxCombo: G.maxMult, streak: save.streak, golds: G.golds });
     save.stars[G.n] = Math.max(before, starsWon);
     save.level = Math.max(save.level, G.n + 1);
     const best = G.score > save.best;
@@ -915,6 +996,8 @@ function draw() {
     drawBays();
     drawGrid();
     for (const s of G.ships) if (s.state === "fly" || s.state === "press") drawFlying(s);
+    drawStormFx();
+    drawStormMeter();
     drawFx();
     drawBanner();
     if (G.alert) {
@@ -972,8 +1055,17 @@ function drawEnemies() {
     const [x, y] = enemySlotPos(k - G.qAnim);
     // The top strip is kept for the "incoming" count.
     if (y < L.enemyTop + 16 + L.enemyR * 0.5) continue;
-    const bob = Math.sin(G.t * 3 + k * 0.7) * 1.6;
-    drawSprite(ctx, saucerSprite(G.queue[k], L.enemyR), x, y + bob, Math.sin(G.t * 2 + k) * 0.06);
+    const bob = Math.sin(G.t * 3 + k * 0.7) * 1.4;
+    // storm: saucers flip to their new colors in a wave running down the formation
+    let color = G.queue[k];
+    let sy = 1;
+    const wf = G.waveFlip;
+    if (wf) {
+      const fk = (G.t - wf.t0 - (k - wf.q) * 0.012) / 0.35;
+      if (fk < 0.5 && k - wf.q < wf.from.length) color = wf.from[k - wf.q];
+      if (fk > 0 && fk < 1) sy = Math.max(0.08, Math.abs(Math.cos(Math.PI * fk)));
+    }
+    drawSprite(ctx, saucerSprite(color, L.enemyR), x, y + bob, Math.sin(G.t * 2 + k) * 0.06, 1, sy);
     if (k === G.q) {
       // target reticle on the front saucer
       ctx.save();
@@ -1191,9 +1283,24 @@ function drawGrid() {
     }
     if (s.wob > 0) ang += Math.sin(G.t * 50) * s.wob * 0.25;
     const len = gridLen(s);
-    const wid = L.shipW;
+    let wid = L.shipW;
+    // storm flip: the rocket turns edge-on, changes color, turns back
+    let shown = s;
+    if (s.flip) {
+      const k = (G.t - s.flip.t0) / 0.4;
+      if (k >= 1) s.flip = null;
+      else if (k < 0.5) shown = { ...s, color: s.flip.from };
+      if (k > 0 && k < 1) wid *= Math.max(0.08, Math.abs(Math.cos(Math.PI * k)));
+    }
+    if (s.gold && G.phase === "play") {
+      ctx.save();
+      ctx.globalCompositeOperation = "lighter";
+      ctx.globalAlpha = 0.55 + 0.25 * Math.sin(G.t * 6);
+      drawSprite(ctx, glowSprite("#ffc23a", L.shipW * 1.1), x, y, ang, (len / L.shipW) * 0.85, 0.9);
+      ctx.restore();
+    }
     // the color the wave's front needs glows softly underneath
-    if (front === s.color && G.phase === "play") {
+    else if (front === s.color && G.phase === "play" && !s.flip) {
       ctx.save();
       ctx.globalCompositeOperation = "lighter";
       ctx.globalAlpha = 0.22 + 0.1 * Math.sin(G.t * 5);
@@ -1202,8 +1309,9 @@ function drawGrid() {
     }
     ctx.save();
     ctx.globalAlpha = alpha;
-    drawShipSprite(s, x, y, ang, len * scale, wid * scale, true, dk < 1 ? 6 * (1 - dk) + 2 : 2, 0.25);
+    drawShipSprite(shown, x, y, ang, len * scale, wid * scale, true, dk < 1 ? 6 * (1 - dk) + 2 : 2, 0.25);
     ctx.restore();
+    if (s.gold) drawGoldStar(x, y, ang, len);
     if (s.flash > 0) {
       ctx.save();
       ctx.globalCompositeOperation = "lighter";
@@ -1244,6 +1352,100 @@ function drawGrid() {
       ctx.shadowBlur = 0;
     }
   }
+}
+
+/** A spinning four-point star riding on the golden rocket's nose, with the odd sparkle. */
+function drawGoldStar(x, y, ang, len) {
+  const nx = x + Math.cos(ang) * len * 0.3;
+  const ny = y + Math.sin(ang) * len * 0.3;
+  const r = L.cell * (0.26 + 0.05 * Math.sin(G.t * 8));
+  ctx.save();
+  ctx.translate(nx, ny);
+  ctx.rotate(G.t * 2);
+  ctx.globalCompositeOperation = "lighter";
+  ctx.fillStyle = "#fff3c4";
+  ctx.shadowColor = "#ffc23a";
+  ctx.shadowBlur = 10;
+  ctx.beginPath();
+  for (let i = 0; i < 8; i++) {
+    const rr = i % 2 ? r * 0.3 : r;
+    const a = (i * Math.PI) / 4;
+    ctx.lineTo(Math.cos(a) * rr, Math.sin(a) * rr);
+  }
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+  if (Math.random() < 0.08) fx.particles.push({ kind: "spark", x: nx, y: ny, vx: (Math.random() - 0.5) * 60, vy: -30 - Math.random() * 40, life: 0, max: 0.5, color: "#ffd75a" });
+}
+
+/** Launches left before the next warp storm, as charging pips between the pads and the hangar. */
+function drawStormMeter() {
+  if (!G.cfg.stormEvery || G.phase !== "play") return;
+  const n = G.cfg.stormEvery;
+  const left = G.stormAt ? 0 : G.stormLeft;
+  const charged = n - left;
+  const y = L.gy - 17;
+  const pipW = Math.min(12, (L.W * 0.32) / n);
+  const x0 = L.W - 14 - n * (pipW + 3);
+  const hot = left <= 2;
+  ctx.save();
+  ctx.font = `900 9px ${HEAD}`;
+  ctx.textAlign = "right";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = hot ? `rgba(213,139,255,${0.7 + 0.3 * Math.sin(G.t * 10)})` : "#8fa3d4";
+  ctx.fillText(left <= 1 ? "⚡ STORM NEXT LAUNCH" : `⚡ WARP STORM IN ${left}`, x0 - 8, y);
+  for (let i = 0; i < n; i++) {
+    const on = i < charged;
+    ctx.fillStyle = on ? (hot ? "#d58bff" : "#9a6bff") : "rgba(255,255,255,0.1)";
+    if (on) {
+      ctx.shadowColor = "#b26bff";
+      ctx.shadowBlur = hot ? 10 : 5;
+    }
+    ctx.beginPath();
+    ctx.roundRect(x0 + i * (pipW + 3), y - 3, pipW, 6, 3);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+  }
+  ctx.restore();
+}
+
+/** The storm sweeping the hangar: a violet wash, a ring rolling outward and lightning across the floor. */
+function drawStormFx() {
+  if (!G.stormFx) return;
+  const k = (G.t - G.stormFx) / 0.8;
+  if (k >= 1) return;
+  const w = G.cfg.cols * L.cell;
+  const h = G.cfg.rows * L.cell;
+  const cx = L.gx + w / 2;
+  const cy = L.gy + h / 2;
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  ctx.globalAlpha = (1 - k) * 0.35;
+  ctx.fillStyle = "#6a2cff";
+  ctx.fillRect(L.gx, L.gy, w, h);
+  ctx.globalAlpha = 1 - k;
+  ctx.strokeStyle = "#d58bff";
+  ctx.shadowColor = "#b26bff";
+  ctx.shadowBlur = 18;
+  ctx.lineWidth = 4 * (1 - k) + 1;
+  ctx.beginPath();
+  ctx.arc(cx, cy, Math.hypot(w, h) * 0.55 * easeOutCubic(k), 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.lineWidth = 1.5;
+  for (let b = 0; b < 3; b++) {
+    if (Math.random() < 0.5) continue;
+    let x = L.gx + Math.random() * w;
+    let y = L.gy;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    while (y < L.gy + h) {
+      x += (Math.random() - 0.5) * L.cell * 1.6;
+      y += L.cell * (0.6 + Math.random() * 0.8);
+      ctx.lineTo(x, Math.min(y, L.gy + h));
+    }
+    ctx.stroke();
+  }
+  ctx.restore();
 }
 
 /** The rocket to highlight: a Radar pick, or (sectors 1-2) a free hint after a short idle time. */
@@ -1598,6 +1800,11 @@ window.__sifi = {
   solution: () => G.solution.slice(),
   tap: (id) => tapShip(id),
   start: (n) => startLevel(n),
+  storm: (helpful = false) => runStorm(helpful),
+  gold: () => (G.ships ? G.ships.findIndex((s) => s.gold) : -1),
+  extra: () => ({ golds: G.golds, storms: G.storms, stormLeft: G.stormLeft, queue: G.queue.slice(G.q),
+    bays: G.bays.map((b) => b && { color: b.color, ammo: b.ammo }),
+    hangar: G.ships.filter((s) => s.state === "grid" || s.state === "bounce").map((s) => ({ color: s.color, cap: s.cap })) }),
 };
 
 // ---------- loop ----------

@@ -23,6 +23,8 @@ test("a first win reaches level 2 at once; streaks, stars and bosses pay more", 
   assert.equal(better.mult, streakMultiplier(4));
   const boss = winXp({ sector: 10, stars: 1, firstClear: true, boss: true, maxCombo: 1, streak: 1 });
   assert.ok(boss.parts.some((p) => p.label === "Boss destroyed"));
+  const gold = winXp({ sector: 1, stars: 1, firstClear: true, boss: false, maxCombo: 1, streak: 1, golds: 2 });
+  assert.equal(gold.total, first.total + 80);
   assert.equal(streakMultiplier(1), 1);
   assert.equal(streakMultiplier(20), 1.5);
 });

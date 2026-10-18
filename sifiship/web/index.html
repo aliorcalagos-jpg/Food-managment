@@ -63,9 +63,11 @@
   #boosts { position: fixed; left: 0; right: 0; bottom: 0; height: 66px; display: none; gap: 10px; justify-content: center; align-items: center;
     padding: 6px 14px 10px; z-index: 3; }
   #boosts.show { display: flex; }
-  #boosts button { flex: 1; max-width: 122px; height: 48px; border-radius: 15px; font: 800 12px var(--head); letter-spacing: 1px;
-    display: flex; align-items: center; justify-content: center; gap: 7px; position: relative; touch-action: manipulation; transition: transform 0.12s, opacity 0.2s; }
-  #boosts button i { font-style: normal; font-size: 18px; color: var(--cyan); text-shadow: 0 0 10px var(--cyan); }
+  #boosts button { flex: 1; max-width: 96px; height: 52px; border-radius: 15px; font: 800 9px var(--head); letter-spacing: 1px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; position: relative; touch-action: manipulation;
+    transition: transform 0.12s, opacity 0.2s; }
+  #boosts button i { font-style: normal; font-size: 18px; line-height: 1; color: var(--cyan); text-shadow: 0 0 10px var(--cyan); }
+  #boost-shuffle i { color: var(--violet); text-shadow: 0 0 10px var(--violet); }
   #boosts button b { position: absolute; top: -8px; right: -6px; min-width: 22px; height: 22px; border-radius: 11px; background: linear-gradient(160deg, #ffe39a, #f0a814);
     color: #1a1000; font: 900 11px var(--head); display: grid; place-items: center; padding: 0 6px; box-shadow: 0 0 10px rgba(255, 194, 58, 0.6); }
   #boosts button.off { opacity: 0.35; }
@@ -226,8 +228,9 @@
 <div id="shieldBar"><i id="hudShield"></i></div>
 
 <div id="boosts">
-  <button id="boost-bay" class="glass" aria-label="Open an extra bay"><i>⊕</i>+1 BAY<b>0</b></button>
+  <button id="boost-bay" class="glass" aria-label="Open an extra pad"><i>⊕</i>+1 PAD<b>0</b></button>
   <button id="boost-undo" class="glass" aria-label="Undo last launch"><i>↶</i>UNDO<b>0</b></button>
+  <button id="boost-shuffle" class="glass" aria-label="Shuffle colors"><i>⇄</i>SHUFFLE<b>0</b></button>
   <button id="boost-radar" class="glass" aria-label="Show a good rocket"><i>◎</i>RADAR<b>0</b></button>
 </div>
 
@@ -257,7 +260,9 @@
       <div><i>➤</i><span><b>Tap a rocket</b> to launch it the way its arrow points. Rockets in the way block it.</span></div>
       <div><i>◎</i><span>Launched rockets land on <b>5 pads</b>, aim and shoot saucers of <b>their color</b>, front of the wave first.</span></div>
       <div><i>!</i><span>Fill every pad with the wrong colors and the hangar <b>jams</b>. Keep the wave off the shield.</span></div>
-      <div><i>⊕</i><span><b>+1 Bay</b>, <b>Undo</b> and <b>Radar</b> get you out of trouble. Level up to earn more.</span></div>
+      <div><i>⚡</i><span>From sector 3, every few launches a <b>warp storm</b> shuffles the colors of the hangar and the wave. Watch the meter and plan for it. A storm never makes a sector unwinnable.</span></div>
+      <div><i>★</i><span>One <b>golden rocket</b> hides in each sector: launch it for +500 and bonus XP before a storm moves it.</span></div>
+      <div><i>⊕</i><span><b>+1 Pad</b>, <b>Undo</b>, <b>Shuffle</b> (a storm that helps you) and <b>Radar</b> get you out of trouble. Level up to earn more.</span></div>
       <div><i>★</i><span>Clear sectors for <b>XP</b>. Stars, combos, bosses and win streaks pay extra. Levels unlock new <b>hulls</b>.</span></div>
     </div>
     <button class="btn ghost" id="howBack">Got it</button>

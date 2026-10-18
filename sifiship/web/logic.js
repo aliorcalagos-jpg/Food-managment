@@ -76,6 +76,8 @@ export function levelConfig(n) {
     solutionBays: e < 0.3 ? 2 : e < 0.7 ? 3 : 4,
     // Expected thinking time per rocket (seconds); sets how fast the wave closes in (see generateLevel).
     secondsPerShip: 3.2 - 1.4 * e,
+    // Warp storms: after this many launches the hangar's colors shuffle (none in sectors 1-2).
+    stormEvery: n <= 2 ? 0 : Math.round(12 - 5 * e),
     boss: n % 10 === 0,
   };
 }
@@ -138,11 +140,13 @@ export function pickShooter(bays, color) {
 
 /**
  * Plays `order` (ship ids, launched one after another as soon as a bay is free) against the wave.
+ * `start` optionally gives what already sits in the bays ({ color, ammo } or null each).
  * Returns { ok, peak } where peak is the most bays in use at once.
  */
-export function simulate(ships, queue, order, bayCount) {
+export function simulate(ships, queue, order, bayCount, start = null) {
   const byId = new Map(ships.map((s) => [s.id, s]));
   const bays = new Array(bayCount).fill(null);
+  if (start) start.forEach((b, i) => (bays[i] = b && b.ammo > 0 ? { color: b.color, ammo: b.ammo, ready: true } : null));
   let q = 0;
   let next = 0;
   let peak = 0;
@@ -220,6 +224,32 @@ export function radarHint(ships, queue, q, bays, cols, rows) {
   return free[0] || null;
 }
 
+/**
+ * The wave for launching `order`: each rocket's shots (after whatever already sits in `start` bays) in launch
+ * order, split in pairs, then mixed up as long as that order still clears it within `bayCount` bays. Mixing
+ * is what makes the launch order matter. Returns the wave (colors), or null if even the unmixed one fails.
+ */
+function buildWave(ships, order, bayCount, rng, passesPerChunk, start = null) {
+  const byId = new Map(ships.map((s) => [s.id, s]));
+  let chunks = [];
+  const add = (color, shots) => {
+    for (let left = shots; left > 0; left -= 2) chunks.push({ color, n: Math.min(2, left) });
+  };
+  for (const b of start || []) if (b && b.ammo > 0) add(b.color, b.ammo);
+  for (const id of order) add(byId.get(id).color, byId.get(id).cap);
+  const flat = (cs) => cs.flatMap((c) => new Array(c.n).fill(c.color));
+  const passes = Math.round(chunks.length * passesPerChunk);
+  for (let p = 0; p < passes; p++) {
+    const i = Math.floor(rng() * (chunks.length - 1));
+    if (chunks[i].color === chunks[i + 1].color) continue;
+    const swapped = chunks.slice();
+    [swapped[i], swapped[i + 1]] = [swapped[i + 1], swapped[i]];
+    if (simulate(ships, flat(swapped), order, bayCount, start).ok) chunks = swapped;
+  }
+  const queue = flat(chunks);
+  return simulate(ships, queue, order, bayCount, start).ok ? queue : null;
+}
+
 function tryGenerate(cfg, rng, placements) {
   const { cols, rows } = cfg;
   const ships = [];
@@ -272,24 +302,8 @@ function tryGenerate(cfg, rng, placements) {
 
   const order = ships.map((s) => s.id).reverse();
 
-  // The wave: each rocket's shots in launch order, split in pairs, then mixed up as long as the intended
-  // order still clears it within `solutionBays`. Mixing is what makes the launch order matter.
-  let chunks = [];
-  for (const id of order) {
-    const s = ships[id];
-    for (let left = s.cap; left > 0; left -= 2) chunks.push({ color: s.color, n: Math.min(2, left) });
-  }
-  const flat = (cs) => cs.flatMap((c) => new Array(c.n).fill(c.color));
-  const passes = Math.round(chunks.length * (1 + 3 * cfg.e));
-  for (let p = 0; p < passes; p++) {
-    const i = Math.floor(rng() * (chunks.length - 1));
-    if (chunks[i].color === chunks[i + 1].color) continue;
-    const swapped = chunks.slice();
-    [swapped[i], swapped[i + 1]] = [swapped[i + 1], swapped[i]];
-    if (simulate(ships, flat(swapped), order, cfg.solutionBays).ok) chunks = swapped;
-  }
-  const queue = flat(chunks);
-  if (!simulate(ships, queue, order, cfg.solutionBays).ok) return null;
+  const queue = buildWave(ships, order, cfg.solutionBays, rng, Math.round(1 + 3 * cfg.e));
+  if (!queue) return null;
   return { ships, queue, order };
 }
 
@@ -316,4 +330,59 @@ export function generateLevel(n) {
     return { cfg: { ...base, pushback, creep }, ...made };
   }
   throw new Error(`could not build sector ${n}`);
+}
+
+/** The first `k` distinct colors the wave needs that no bay is already covering. */
+function neededColors(queue, bays, k) {
+  const covered = new Set(bays.filter((b) => b && b.ammo > 0).map((b) => b.color));
+  const out = [];
+  for (const c of queue) {
+    if (out.length >= k) break;
+    if (!covered.has(c) && !out.includes(c)) out.push(c);
+  }
+  return out;
+}
+
+/**
+ * A warp storm. The rockets still in the hangar swap colors, only between rockets of the same length, so each
+ * color keeps the same number of shots; then the rest of the wave is re-formed for the new colors (same
+ * saucers per color) so the sector can still be cleared from the current bays (`bays`: the open bays as
+ * { color, ammo } or null) using at most `budget` of them. `helpful` (the Shuffle booster) tries several
+ * storms and keeps the one that leaves the most free rockets in the colors the new wave needs first.
+ * Returns { colors: Map id → color, queue: the new rest of the wave }, or null if no storm fits.
+ */
+export function warpStorm(ships, bays, cols, rows, rng, { helpful = false, budget = bays.length } = {}) {
+  if (ships.length < 2) return null;
+  const order = ships.map((s) => s.id).sort((a, b) => b - a);
+  const occ = occupancy(ships, cols, rows);
+  const free = new Set(ships.filter((s) => !blocker(s, occ, cols, rows)).map((s) => s.id));
+  const byLen = new Map();
+  for (const s of ships) byLen.set(s.len, [...(byLen.get(s.len) || []), s]);
+  const bayCount = Math.max(1, Math.min(bays.length, budget));
+  let best = null;
+  let bestScore = -1;
+  for (let t = 0; t < (helpful ? 6 : 3); t++) {
+    const colors = new Map();
+    for (const group of byLen.values()) {
+      const pool = shuffle(group.map((s) => s.color), rng);
+      group.forEach((s, i) => colors.set(s.id, pool[i]));
+    }
+    const recolored = ships.map((s) => ({ ...s, color: colors.get(s.id) }));
+    // The docked rockets keep their bay; the budget counts them, so the storm never assumes extra room.
+    const room = Math.min(bays.length, Math.max(bayCount, bays.filter(Boolean).length + 1));
+    const queue = buildWave(recolored, order, room, rng, 2, bays);
+    if (!queue) continue;
+    const result = { colors, queue };
+    if (!helpful) return result;
+    const need = neededColors(queue, bays, 3);
+    const score = recolored.reduce((sum, s) => {
+      const i = need.indexOf(s.color);
+      return sum + (free.has(s.id) && i !== -1 ? 3 - i : 0);
+    }, 0);
+    if (score > bestScore) {
+      bestScore = score;
+      best = result;
+    }
+  }
+  return best;
 }

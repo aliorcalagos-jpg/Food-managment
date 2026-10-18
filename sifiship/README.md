@@ -1,8 +1,8 @@
-# SIFIship: Hangar Launch (V.3)
+# SIFIship: Hangar Launch (V.4)
 
 A sci-fi take on the "bus jam" puzzle for Android phones. It has the same rules with a different theme.
 
-**Install:** copy `dist/SIFIship-V.3.apk` to an Android 7+ phone, allow "install unknown apps" for your file manager or browser, and open the file. V.3 installs over V.1 and V.2 and keeps your progress; stars you already earned are credited as XP once. The game works offline and keeps its progress on the phone. It asks only for vibration.
+**Install:** copy `dist/SIFIship-V.4.apk` to an Android 7+ phone, allow "install unknown apps" for your file manager or browser, and open the file. V.4 installs over V.1–V.3 and keeps your progress; stars you already earned are credited as XP once. The game works offline and keeps its progress on the phone. It asks only for vibration.
 
 ## How it plays
 
@@ -13,18 +13,22 @@ A sci-fi take on the "bus jam" puzzle for Android phones. It has the same rules 
 - **Lose by breach:** from sector 3 on, the wave closes in (meter on the left). Every kill pushes it back. If it reaches the shield line, the shield bar drains.
 - **Win:** destroy the whole wave. You get 1 to 3 stars: one for clearing, one for shield above 70%, and one for never using more than 3 bays at once.
 
+## Warp storms and the golden rocket
+
+- **Warp storms (from sector 3):** a meter above the hangar counts launches down to the next storm (every `round(12 − 5·e)` launches: 11 early, 7 at the top). It counts launches, not seconds, so it pressures your plan, not your reflexes. When it strikes, the rockets left in the hangar flip to new colors in a ripple from the center, and the saucers still to come flip with them.
+- **Always winnable:** colors only swap between rockets of the same length, so each color keeps the same shots. The rest of the wave is then re-formed for the new colors with the same method as the level generator, so a launch plan that clears the sector from the pads as they are always exists. `warpStorm` in `web/logic.js` builds it, and `test/logic.check.mjs` checks it. The playtest also checks after every launch that the wave left equals the shots on the pads plus those in the hangar.
+- **Golden rocket:** one rocket per sector glows gold with a spinning star, preferably a blocked one, so reaching it takes a plan. Launching it pays +500 score and +40 XP. Each storm moves the gold to another rocket.
+
 ## Boosters
 
 | Booster | What it does |
 |---|---|
-| **+1 Bay** | Opens the locked sixth bay for the rest of the sector. You can also tap the 🔒 bay. |
+| **+1 Pad** | Opens the locked sixth pad for the rest of the sector. You can also tap the 🔒 pad. |
 | **Undo** | Sends the last launched rocket back to the hangar, if it hasn't fired yet. |
+| **Shuffle** | A storm on your terms: of several valid shuffles it keeps the one that leaves the most free rockets in the colors the wave needs first. It doesn't move the storm meter. |
 | **Radar** | Highlights a free rocket whose color the wave needs soonest. |
 
-You start with 2 / 3 / 3. You earn more once per sector:
-- one booster for the first 3-star clear of a sector,
-- one of each for the first clear of a boss sector,
-- one Radar for the first clear of every 5th sector.
+You start with 2 +1 Pad, 3 Undo, 2 Shuffle and 3 Radar. You earn more by leveling up: one per level (Radar, Shuffle, Undo, +1 Pad in turn), and one of each extra every 5th level. A jammed run can also be rescued with +1 Pad or Undo from the "Hangar jammed" screen.
 
 ## Pilot level, ranks and hulls
 
@@ -98,6 +102,6 @@ Each sector's layout is generated from its number, so the same sector is always 
 
 ## Build
 
-`bash sifiship/build-apk.sh` runs the checks and writes `dist/SIFIship-V.3.apk`. You need the Debian/Ubuntu tools `aapt dalvik-exchange apksigner zipalign android-sdk-platform-23` and a JDK. The first build creates `android/sifiship.keystore`, which git ignores. Keep it: an update installs over an older version only if both are signed with the same key.
+`bash sifiship/build-apk.sh` runs the checks and writes `dist/SIFIship-V.4.apk`. You need the Debian/Ubuntu tools `aapt dalvik-exchange apksigner zipalign android-sdk-platform-23` and a JDK. The first build creates `android/sifiship.keystore`, which git ignores. Keep it: an update installs over an older version only if both are signed with the same key.
 
 To try the game in a desktop browser, serve the folder and open it in phone-sized dev tools: `cd sifiship/web && python3 -m http.server`.
