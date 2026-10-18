@@ -1,17 +1,31 @@
-# SIFIship: Hangar Launch (V.4)
+# SIFIship: Hangar Launch (V.5)
 
 A sci-fi take on the "bus jam" puzzle for Android phones. It has the same rules with a different theme.
 
-**Install:** copy `dist/SIFIship-V.4.apk` to an Android 7+ phone, allow "install unknown apps" for your file manager or browser, and open the file. V.4 installs over V.1–V.3 and keeps your progress; stars you already earned are credited as XP once. The game works offline and keeps its progress on the phone. It asks only for vibration.
+**Install:** copy `dist/SIFIship-V.5.apk` to an Android 7+ phone, allow "install unknown apps" for your file manager or browser, and open the file. V.5 installs over V.1–V.4 and keeps your progress; stars you already earned are credited as XP once. The game works offline and keeps its progress on the phone. It asks only for vibration.
 
 ## How it plays
 
-- **Hangar grid (bottom):** a dense hangar of about 60 rockets from sector 1 (up to ~74 later), each with an arrow. Tap a rocket to launch it the way its arrow points. If another rocket is in the way, it bumps into it and the blocker flashes red. Rockets of the color the wave needs next have a soft glow underneath (the glow says nothing about whether they are free).
+- **Hangar grid (bottom):** a dense hangar of about 60 rockets from sector 1 (up to ~74 later), each showing its direction with chevrons. Tap a rocket to launch it the way its chevrons point. If another rocket is in the way, it bumps into it and the blocker flashes red. Rockets of the color the wave needs next have a soft glow underneath (the glow says nothing about whether they are free).
 - **Launch bays (middle):** a launched rocket docks in one of **5 bays**. The badge under it shows its shots: 3 for short rockets, 4 for long ones and 6 for 4-cell cruisers. A sixth bay is locked and opens with the +1 Bay booster.
 - **Enemy wave (top):** saucers line up in order. A docked rocket automatically shoots the **front** enemy when the colors match. When a rocket runs out of shots it warps away and frees its bay.
 - **Lose by jamming:** if every bay holds a rocket that can't hit the front enemy, the hangar jams. You can rescue the run with +1 Bay or Undo instead of restarting.
 - **Lose by breach:** from sector 3 on, the wave closes in (meter on the left). Every kill pushes it back. If it reaches the shield line, the shield bar drains.
 - **Win:** destroy the whole wave. You get 1 to 3 stars: one for clearing, one for shield above 70%, and one for never using more than 3 bays at once.
+
+## Direction chevrons and hold-to-aim
+
+- **Chevrons:** a rocket's direction is shown by chevrons drawn live on its hull, no longer printed into the sprite.
+  - **Ready** (nothing between its nose and the hangar edge): three glowing white chevrons with a light pulse running toward the nose.
+  - **Blocked:** two dark chevrons with a bright rim, so the direction still reads on any hull color.
+
+  With 60+ rockets you see at a glance which ones can fly, and the puzzle becomes the order and the colors.
+- **Ignition:** when a launch clears the way for other rockets, their chevrons ignite with a flash and a chime. A bigger cascade gets a brighter chime.
+- **Hold to aim:**
+  - Hold a rocket for about a quarter second to project its flight path to the hangar edge.
+  - Green means clear ("CLEAR · RELEASE TO LAUNCH"). Otherwise the path turns red at the first blocker, every rocket in the way is outlined and numbered in order, and the label says "BLOCKED BY n".
+  - Release on the rocket to launch, or slide off it to cancel.
+  - A quick tap still launches, now on release, so a tap and a hold can be told apart.
 
 ## Warp storms and the golden rocket
 
@@ -58,7 +72,7 @@ The win screen plays out in steps: stars pop in one by one, the score counts up,
 ## Look and motion
 
 - Rockets, saucers, landing pads, the steel-plate hangar floor and the nebula-and-planet backdrop are painted once into cached sprites (`web/render.js`) with metal shading, specular streaks, glass canopies, glowing engines and soft drop shadows, so 70 rockets draw cheaply on a phone.
-- A tap squashes the rocket for a moment, then it burns out along its arrow with an engine trail. It banks along a curve to its pad, lands with a spring settle and turns to aim at each saucer it shoots.
+- A tap squashes the rocket for a moment, then it burns out the way its chevrons point, with an engine trail. It banks along a curve to its pad, lands with a spring settle and turns to aim at each saucer it shoots.
 - A blocked rocket surges forward, hits the blocker (sparks, the blocker wobbles and flashes) and springs back.
 - Saucers explode with a flash, a shockwave, sparks and debris. An empty rocket warps out upward.
 - Type: Orbitron and Exo 2, bundled (SIL Open Font License, see `web/fonts/`), so the game needs no internet.
@@ -102,6 +116,6 @@ Each sector's layout is generated from its number, so the same sector is always 
 
 ## Build
 
-`bash sifiship/build-apk.sh` runs the checks and writes `dist/SIFIship-V.4.apk`. You need the Debian/Ubuntu tools `aapt dalvik-exchange apksigner zipalign android-sdk-platform-23` and a JDK. The first build creates `android/sifiship.keystore`, which git ignores. Keep it: an update installs over an older version only if both are signed with the same key.
+`bash sifiship/build-apk.sh` runs the checks and writes `dist/SIFIship-V.5.apk`. You need the Debian/Ubuntu tools `aapt dalvik-exchange apksigner zipalign android-sdk-platform-23` and a JDK. The first build creates `android/sifiship.keystore`, which git ignores. Keep it: an update installs over an older version only if both are signed with the same key.
 
 To try the game in a desktop browser, serve the folder and open it in phone-sized dev tools: `cd sifiship/web && python3 -m http.server`.

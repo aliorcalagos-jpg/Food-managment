@@ -108,6 +108,8 @@ export const sfx = {
     tone(90, 0.7, "sawtooth", 0.1, 380);
     tone(1200, 0.5, "sine", 0.07, 300, 0.1);
   },
+  // rockets whose way just cleared: a rising chime, brighter for a bigger cascade
+  free: (n) => tone(880 + Math.min(n, 5) * 120, 0.12, "sine", 0.12, 1760 + Math.min(n, 5) * 160),
   click: () => tone(700, 0.05, "triangle", 0.15),
 };
 

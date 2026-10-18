@@ -1,8 +1,8 @@
 // SIFIship: game loop, motion, drawing, input and screens. Rules: logic.js. Progression: progress.js.
 // Sprites: render.js. Sound: audio.js.
-import { COLORS, DIRS, BAYS, EXTRA_BAYS, generateLevel, occupancy, blocker, pickShooter, radarHint, warpStorm } from "./logic.js";
+import { COLORS, DIRS, BAYS, EXTRA_BAYS, generateLevel, occupancy, blocker, exitPath, pickShooter, radarHint, warpStorm } from "./logic.js";
 import { SKINS, xpToNext, addXp, winXp, lossXp, rankFor, levelRewards, nextUnlock, streakMultiplier } from "./progress.js";
-import { setDpr, shipSprite, shadowSprite, glowSprite, saucerSprite, padSprite, hangarTexture, backdrop, drawSprite, rgba } from "./render.js";
+import { setDpr, shipSprite, shadowSprite, glowSprite, saucerSprite, padSprite, hangarTexture, backdrop, drawSprite, rgba, chevronSprite } from "./render.js";
 import { sfx, buzz, initAudio, bindSettings } from "./audio.js";
 
 const canvas = document.getElementById("c");
@@ -169,6 +169,9 @@ function startLevel(n) {
   G.stormAt = 0;
   G.stormUntil = 0;
   G.waveFlip = null;
+  G.free = null;
+  G.aimId = -1;
+  press = null;
   refreshOcc();
   placeGrid();
   pickGold();
@@ -180,11 +183,20 @@ function startLevel(n) {
 }
 
 function refreshOcc() {
-  G.occ = occupancy(
-    G.ships.filter((s) => s.state === "grid" || s.state === "bounce"),
-    G.cfg.cols,
-    G.cfg.rows,
-  );
+  const inGrid = G.ships.filter((s) => s.state === "grid" || s.state === "bounce");
+  G.occ = occupancy(inGrid, G.cfg.cols, G.cfg.rows);
+  // Which rockets have a clear way out. One that just became free (its blocker left) ignites.
+  const free = new Set(inGrid.filter((s) => !blocker(s, G.occ, G.cfg.cols, G.cfg.rows)).map((s) => s.id));
+  if (G.free) {
+    let lit = 0;
+    for (const id of free)
+      if (!G.free.has(id)) {
+        G.ships[id].ignite = G.t;
+        lit++;
+      }
+    if (lit) sfx.free(lit);
+  }
+  G.free = free;
 }
 const inHangar = () => G.ships.filter((s) => s.state === "grid" || s.state === "bounce" || s.state === "press").length;
 
@@ -251,6 +263,10 @@ function explode(x, y, colorIndex, big = false) {
 }
 
 // ---------- input ----------
+// A quick tap launches (on release). Holding a rocket for AIM_HOLD seconds projects its flight path; then
+// releasing on it launches, and sliding off it cancels.
+const AIM_HOLD = 0.28;
+let press = null;
 canvas.addEventListener("pointerdown", (e) => {
   if (G.phase !== "play") return;
   initAudio();
@@ -260,7 +276,29 @@ canvas.addEventListener("pointerdown", (e) => {
     return;
   }
   const id = shipAt(e.clientX, e.clientY);
-  if (id !== -1) tapShip(id);
+  if (id === -1 || G.ships[id].state !== "grid") return;
+  press = { id, t0: G.t, x: e.clientX, y: e.clientY, off: false };
+  G.ships[id].pressed = G.t;
+});
+canvas.addEventListener("pointermove", (e) => {
+  if (!press) return;
+  // Sliding off the rocket cancels (the path preview turns grey to show it).
+  press.off = shipAt(e.clientX, e.clientY) !== press.id && Math.hypot(e.clientX - press.x, e.clientY - press.y) > L.cell * 0.6;
+});
+canvas.addEventListener("pointerup", (e) => {
+  if (!press) return;
+  const p = press;
+  press = null;
+  G.aimId = -1;
+  G.ships[p.id].pressed = 0;
+  if (p.off || G.phase !== "play") return;
+  if (shipAt(e.clientX, e.clientY) !== p.id && Math.hypot(e.clientX - p.x, e.clientY - p.y) > L.cell * 0.6) return;
+  tapShip(p.id);
+});
+canvas.addEventListener("pointercancel", () => {
+  if (press) G.ships[press.id].pressed = 0;
+  press = null;
+  G.aimId = -1;
 });
 
 /** The rocket under a touch; a touch on an empty cell picks the nearest rocket within ~0.7 cell. */
@@ -496,6 +534,11 @@ function update(dt) {
       b.ang = lerpAngle(b.ang, want, Math.min(1, dt * 16));
     }
   G.bayShake = Math.max(0, (G.bayShake || 0) - dt);
+  if (press && G.aimId === -1 && !press.off && G.t - press.t0 >= AIM_HOLD && G.ships[press.id].state === "grid") {
+    G.aimId = press.id;
+    sfx.tick();
+    buzz("tick");
+  }
   G.qAnim += (G.q - G.qAnim) * Math.min(1, dt * 9);
   if (G.waveFlip && G.t - G.waveFlip.t0 > 2) G.waveFlip = null;
   G.boostSync = (G.boostSync || 0) - dt;
@@ -932,7 +975,7 @@ function paintPreview(c, skin, colorIndex) {
   c.width = w * r;
   c.height = h * r;
   g.setTransform(r, 0, 0, r, 0, 0);
-  const spr = shipSprite(skin, colorIndex, w * 0.86, h * 0.8, false);
+  const spr = shipSprite(skin, colorIndex, w * 0.86, h * 0.8);
   // The sprite cache paints at the game's pixel ratio; stamp it through the same helper.
   drawSprite(g, spr, w / 2, h / 2, 0);
 }
@@ -997,7 +1040,8 @@ function draw() {
     drawGrid();
     for (const s of G.ships) if (s.state === "fly" || s.state === "press") drawFlying(s);
     drawStormFx();
-    drawStormMeter();
+    if (G.aimId === -1) drawStormMeter();
+    drawAim();
     drawFx();
     drawBanner();
     if (G.alert) {
@@ -1242,7 +1286,8 @@ function drawLockedBay(x, y) {
 function drawShipSprite(s, x, y, ang, len, wid, arrow, lift, engine) {
   const skin = save.skin;
   drawSprite(ctx, shadowSprite(skin, len, wid), x + lift * 0.6, y + lift, ang);
-  drawSprite(ctx, shipSprite(skin, s.color, len, wid, arrow), x, y, ang);
+  drawSprite(ctx, shipSprite(skin, s.color, len, wid), x, y, ang);
+  if (arrow) drawChevrons(s, x, y, ang, len, wid);
   if (engine > 0) {
     const c = COLORS[s.color];
     const rx = x - Math.cos(ang) * len * 0.52;
@@ -1282,6 +1327,7 @@ function drawGrid() {
       y += DIRS[s.dir][1] * off;
     }
     if (s.wob > 0) ang += Math.sin(G.t * 50) * s.wob * 0.25;
+    if (s.pressed && s.state === "grid") scale *= 0.93;
     const len = gridLen(s);
     let wid = L.shipW;
     // storm flip: the rocket turns edge-on, changes color, turns back
@@ -1352,6 +1398,146 @@ function drawGrid() {
       ctx.shadowBlur = 0;
     }
   }
+}
+
+/**
+ * The rocket's direction chevrons, drawn live: three glowing chevrons with a light pulse running to the nose
+ * when its way out is clear, two dark rimmed ones when it is blocked. A rocket that just became free ignites.
+ */
+function drawChevrons(s, x, y, ang, len, wid) {
+  const ready = s.state === "press" || (G.free && G.free.has(s.id));
+  const size = Math.min(wid * 0.56, len * 0.24);
+  const n = ready ? 3 : 2;
+  const step = size * 0.58;
+  const ca = Math.cos(ang);
+  const sa = Math.sin(ang);
+  const ig = s.ignite ? (G.t - s.ignite) / 0.6 : 1;
+  const igK = ig < 1 ? 1 - ig : 0;
+  const spr = chevronSprite(ready ? "ready" : "idle", size);
+  for (let i = 0; i < n; i++) {
+    // centered on the hull, a little behind the canopy; i = 0 is the rearmost
+    const o = -len * 0.06 + (i - (n - 1) / 2) * step;
+    let alpha = 0.7;
+    let scale = 1;
+    if (ready) {
+      const wave = (Math.sin(G.t * 7 - i * 1.3) + 1) / 2;
+      alpha = 0.6 + 0.4 * wave;
+      scale = 1 + igK * 0.5 * (1 - i * 0.15);
+    }
+    drawSprite(ctx, spr, x + ca * o, y + sa * o, ang, scale, scale, alpha);
+  }
+  if (igK > 0) {
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    ctx.globalAlpha = igK;
+    drawSprite(ctx, glowSprite("#7cf3ff", wid * 0.9), x, y, ang, (len / wid) * 0.7 * (1.2 - igK * 0.2), 0.8);
+    ctx.restore();
+  }
+}
+
+/** Hold-to-aim: the rocket's flight path to the hangar edge, green when clear; blockers outlined and numbered. */
+function drawAim() {
+  if (G.aimId === -1) return;
+  const s = G.ships[G.aimId];
+  if (s.state !== "grid" && s.state !== "bounce") return;
+  const { cols, rows } = G.cfg;
+  const path = exitPath(s, cols, rows);
+  const blockers = [];
+  let firstHit = -1;
+  path.forEach(([cx, cy], i) => {
+    const id = G.occ[cy][cx];
+    if (id !== -1 && id !== s.id) {
+      if (firstHit === -1) firstHit = i;
+      if (!blockers.includes(id)) blockers.push(id);
+    }
+  });
+  const cancel = press && press.off;
+  const clear = !blockers.length;
+  const [x, y] = shipCenter(s);
+  const [dx, dy] = DIRS[s.dir];
+  const nose = gridLen(s) / 2;
+  const reach = (path.length + 0.5) * L.cell;
+  const hitAt = firstHit === -1 ? reach : (firstHit + 0.15) * L.cell;
+  const col = cancel ? "#8fa3d4" : clear ? "#7dff4a" : "#ff3b5c";
+  ctx.save();
+  ctx.lineCap = "round";
+  // clear stretch, then (if blocked) the red stretch beyond the first blocker
+  ctx.globalCompositeOperation = "lighter";
+  ctx.setLineDash([L.cell * 0.18, L.cell * 0.22]);
+  ctx.lineDashOffset = -G.t * L.cell * 2.2;
+  ctx.lineWidth = Math.max(2, L.cell * 0.12);
+  ctx.shadowBlur = 10;
+  ctx.strokeStyle = cancel ? "#8fa3d4" : "#7dff4a";
+  ctx.shadowColor = ctx.strokeStyle;
+  ctx.beginPath();
+  ctx.moveTo(x + dx * nose, y + dy * nose);
+  ctx.lineTo(x + dx * (nose + hitAt), y + dy * (nose + hitAt));
+  ctx.stroke();
+  if (!clear) {
+    ctx.strokeStyle = cancel ? "#8fa3d4" : "rgba(255,59,92,0.55)";
+    ctx.shadowColor = "#ff3b5c";
+    ctx.beginPath();
+    ctx.moveTo(x + dx * (nose + hitAt), y + dy * (nose + hitAt));
+    ctx.lineTo(x + dx * (nose + reach), y + dy * (nose + reach));
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+  // exit marker at the edge, or a cross at the first contact
+  const ex = x + dx * (nose + (clear ? reach : hitAt));
+  const ey = y + dy * (nose + (clear ? reach : hitAt));
+  ctx.strokeStyle = col;
+  ctx.shadowColor = col;
+  ctx.lineWidth = 2.5;
+  const r = L.cell * 0.22;
+  ctx.beginPath();
+  if (clear) {
+    ctx.arc(ex, ey, r * (1 + 0.2 * Math.sin(G.t * 10)), 0, Math.PI * 2);
+  } else {
+    ctx.moveTo(ex - r, ey - r);
+    ctx.lineTo(ex + r, ey + r);
+    ctx.moveTo(ex + r, ey - r);
+    ctx.lineTo(ex - r, ey + r);
+  }
+  ctx.stroke();
+  ctx.restore();
+  // blockers, numbered in the order they stand in the way
+  blockers.forEach((id, i) => {
+    const b = G.ships[id];
+    const [bx, by] = shipCenter(b);
+    const horizontal = b.dir === "left" || b.dir === "right";
+    const w = (horizontal ? b.len : 1) * L.cell;
+    const h = (horizontal ? 1 : b.len) * L.cell;
+    ctx.save();
+    ctx.strokeStyle = cancel ? "#8fa3d4" : "#ff3b5c";
+    ctx.shadowColor = "#ff3b5c";
+    ctx.shadowBlur = 10;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.roundRect(bx - w / 2 + 1, by - h / 2 + 1, w - 2, h - 2, 6);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = cancel ? "#8fa3d4" : "#ff3b5c";
+    ctx.beginPath();
+    ctx.arc(bx + w / 2 - 6, by - h / 2 + 6, 7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#fff";
+    ctx.font = `900 9px ${HEAD}`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(String(i + 1), bx + w / 2 - 6, by - h / 2 + 6.5);
+    ctx.restore();
+  });
+  // the verdict, top-left of the hangar
+  ctx.save();
+  ctx.font = `900 10px ${HEAD}`;
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = col;
+  ctx.shadowColor = col;
+  ctx.shadowBlur = 8;
+  const verdict = cancel ? "CANCELLED" : clear ? "CLEAR · RELEASE TO LAUNCH" : `BLOCKED BY ${blockers.length}`;
+  ctx.fillText(verdict, L.gx, L.gy - 17);
+  ctx.restore();
 }
 
 /** A spinning four-point star riding on the golden rocket's nose, with the odd sparkle. */
@@ -1802,6 +1988,10 @@ window.__sifi = {
   start: (n) => startLevel(n),
   storm: (helpful = false) => runStorm(helpful),
   gold: () => (G.ships ? G.ships.findIndex((s) => s.gold) : -1),
+  pos: (id) => shipCenter(G.ships[id]),
+  free: () => (G.free ? [...G.free] : []),
+  blocked: () => G.ships.filter((s) => s.state === "grid" && !G.free.has(s.id)).map((s) => s.id),
+  aim: () => G.aimId,
   extra: () => ({ golds: G.golds, storms: G.storms, stormLeft: G.stormLeft, queue: G.queue.slice(G.q),
     bays: G.bays.map((b) => b && { color: b.color, ammo: b.ammo }),
     hangar: G.ships.filter((s) => s.state === "grid" || s.state === "bounce").map((s) => ({ color: s.color, cap: s.cap })) }),

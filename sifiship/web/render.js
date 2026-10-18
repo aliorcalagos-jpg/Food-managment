@@ -186,32 +186,7 @@ function hullPath(g, hull, sx, sy) {
   g.closePath();
 }
 
-/** The white direction arrow, printed on the hull (points right; the sprite turns with the rocket). */
-function arrowDecal(g, x, s) {
-  g.save();
-  g.beginPath();
-  g.moveTo(x + s, 0);
-  g.lineTo(x + s * 0.05, -s * 0.78);
-  g.lineTo(x + s * 0.05, -s * 0.32);
-  g.lineTo(x - s * 0.95, -s * 0.32);
-  g.quadraticCurveTo(x - s * 1.05, 0, x - s * 0.95, s * 0.32);
-  g.lineTo(x + s * 0.05, s * 0.32);
-  g.lineTo(x + s * 0.05, s * 0.78);
-  g.closePath();
-  g.shadowColor = "rgba(0,0,0,0.55)";
-  g.shadowBlur = s * 0.35;
-  g.shadowOffsetY = s * 0.08;
-  g.fillStyle = "#ffffff";
-  g.fill();
-  g.shadowColor = "transparent";
-  g.strokeStyle = "rgba(10,20,40,0.55)";
-  g.lineWidth = Math.max(0.8, s * 0.1);
-  g.lineJoin = "round";
-  g.stroke();
-  g.restore();
-}
-
-function paintShip(g, skinId, colorIndex, L, W, arrow) {
+function paintShip(g, skinId, colorIndex, L, W) {
   const hull = HULLS[skinId] || HULLS.interceptor;
   const t = tones(colorIndex);
   const sx = L / 2;
@@ -391,19 +366,66 @@ function paintShip(g, skinId, colorIndex, L, W, arrow) {
     g.fill();
   }
 
-  if (arrow) arrowDecal(g, -L * 0.06, Math.min(W * 0.36, L * 0.2));
 }
 
-/** A rocket sprite: `L` × `W` CSS px, pointing right, with or without its direction arrow. */
-export function shipSprite(skin, colorIndex, L, W, arrow) {
+/** A rocket sprite: `L` × `W` CSS px, pointing right. (Its direction chevrons are drawn live on top.) */
+export function shipSprite(skin, colorIndex, L, W) {
   L = Math.round(L);
   W = Math.round(W);
-  return cached(`ship|${skin}|${colorIndex}|${L}|${W}|${arrow ? 1 : 0}`, () => {
+  return cached(`ship|${skin}|${colorIndex}|${L}|${W}`, () => {
     const pad = Math.ceil(W * 0.2);
     const [c, g] = canvas(L + pad * 2, W + pad * 2);
     g.translate(pad + L / 2, pad + W / 2);
-    paintShip(g, skin, colorIndex, L, W, arrow);
+    paintShip(g, skin, colorIndex, L, W);
     return { img: c, cx: pad + L / 2, cy: pad + W / 2 };
+  });
+}
+
+/**
+ * One direction chevron, pointing right, `size` px long. "ready" (the way out is clear) is a glowing white
+ * holographic chevron; "idle" (blocked) is a dark inlay with a light rim, so free rockets read at a glance.
+ */
+export function chevronSprite(kind, size) {
+  size = Math.max(4, Math.round(size));
+  return cached(`chev|${kind}|${size}`, () => {
+    const pad = Math.ceil(size * 0.6);
+    const [c, g] = canvas(size + pad * 2, size * 1.2 + pad * 2);
+    g.translate(pad + size / 2, pad + size * 0.6);
+    const s = size;
+    g.beginPath();
+    g.moveTo(s * 0.5, 0);
+    g.lineTo(-s * 0.06, -s * 0.56);
+    g.lineTo(-s * 0.5, -s * 0.56);
+    g.lineTo(s * 0.06, 0);
+    g.lineTo(-s * 0.5, s * 0.56);
+    g.lineTo(-s * 0.06, s * 0.56);
+    g.closePath();
+    g.lineJoin = "round";
+    if (kind === "ready") {
+      g.shadowColor = "#7cf3ff";
+      g.shadowBlur = s * 0.55;
+      const fg = g.createLinearGradient(0, -s * 0.56, 0, s * 0.56);
+      fg.addColorStop(0, "#ffffff");
+      fg.addColorStop(0.5, "#e6fdff");
+      fg.addColorStop(1, "#9cefff");
+      g.fillStyle = fg;
+      g.fill();
+      g.shadowBlur = 0;
+      g.strokeStyle = "rgba(0,40,70,0.7)";
+      g.lineWidth = Math.max(0.8, s * 0.07);
+      g.stroke();
+    } else {
+      // blocked: a dark inlay with a bright rim, so the direction still reads on any hull color
+      const fg = g.createLinearGradient(0, -s * 0.56, 0, s * 0.56);
+      fg.addColorStop(0, "#2a3452");
+      fg.addColorStop(1, "#0d1222");
+      g.fillStyle = fg;
+      g.fill();
+      g.strokeStyle = "rgba(220,232,255,0.8)";
+      g.lineWidth = Math.max(1, s * 0.09);
+      g.stroke();
+    }
+    return { img: c, cx: pad + size / 2, cy: pad + size * 0.6 };
   });
 }
 
