@@ -1,8 +1,8 @@
-# SIFIship: Hangar Launch (V.5)
+# SIFIship: Hangar Launch (V.6)
 
 A sci-fi take on the "bus jam" puzzle for Android phones. It has the same rules with a different theme.
 
-**Install:** copy `dist/SIFIship-V.5.apk` to an Android 7+ phone, allow "install unknown apps" for your file manager or browser, and open the file. V.5 installs over V.1–V.4 and keeps your progress; stars you already earned are credited as XP once. The game works offline and keeps its progress on the phone. It asks only for vibration.
+**Install:** copy `dist/SIFIship-V.6.apk` to an Android 7+ phone, allow "install unknown apps" for your file manager or browser, and open the file. V.6 installs over V.1–V.5 and keeps your progress; stars you already earned are credited as XP once. The game works offline and keeps its progress on the phone. It asks only for vibration.
 
 ## How it plays
 
@@ -44,6 +44,21 @@ A sci-fi take on the "bus jam" puzzle for Android phones. It has the same rules 
 
 You start with 2 +1 Pad, 3 Undo, 2 Shuffle and 3 Radar. You earn more by leveling up: one per level (Radar, Shuffle, Undo, +1 Pad in turn), and one of each extra every 5th level. A jammed run can also be rescued with +1 Pad or Undo from the "Hangar jammed" screen.
 
+## Star Pass (Season 1 · Nebula Run)
+
+A free 30-tier reward track (`web/pass.js`), opened from the menu or the win screen.
+
+- **Fed by stars:** pass stars are the sum of your best stars per sector, so replaying a sector to go from 2★ to 3★ also climbs the pass.
+- **Tier thresholds:** tier k unlocks at `3k + ⌊k²/10⌋` stars: 3, 6, 9, 13, 17 … 40 at tier 10 and 180 at tier 30. The first tiers come about one per sector; later ones ask for 3-star runs.
+- **Rewards:**
+  - Regular tiers rotate Radar → Shuffle → Undo → +1 Pad → XP, and grow a little later in the season.
+  - Tiers 10, 20 and 30 are gold milestones: 2 of every booster plus 300 / 600 / 900 XP.
+  - Tiers 5, 15, 25 and 30 unlock **engine trails**, worn by launched rockets: Ion Stream, Solar Flare, Void Wake and Nova Spectrum, plus the default Plasma. Choose one in the Hangar.
+- **Claiming:** each reward is claimed by hand, one at a time or with **Claim all**. A red badge on the menu's Star Pass button counts rewards waiting.
+  - The win screen shows how many stars the run added and when a tier unlocks.
+  - XP from the pass can trigger level-ups, which play the usual level-up screen.
+- There is no paid track; everything is earned by playing.
+
 ## Pilot level, ranks and hulls
 
 Every sector pays **XP** into a pilot level (`web/progress.js`):
@@ -68,6 +83,16 @@ The win screen plays out in steps: stars pop in one by one, the score counts up,
 | Boss sector | Every 10th sector (☠ on the map) is the peak of its block, with a mothership |
 | Sector map | A path of planets you climb, with stars per sector; any cleared sector can be replayed |
 | Onboarding | Sector 1 frames the rocket to tap. Sectors 1–2 frame a good rocket after 4 idle seconds. |
+
+## Interface: Sleek Sci-Fi Luxe
+
+- **Panels and buttons:** angled (chamfered) corners with crisp borders that follow the cut, faint scanlines, and a light sweep as a panel opens. Each panel's contents slide in one after another.
+- **Technical labels:** "◆ SYS-01 · Fleet command"-style labels on every panel, and hairline rules with diamond marks.
+- **On the play field:** hairline corner brackets frame the hangar and the pad row, with small "◆ HOSTILE WAVE" and "◆ HANGAR · 12×15" labels.
+- **Sector start:** a cyan scan line wipes the screen into the sector.
+- **Parallax:** the backdrop and stars follow the phone's tilt, or drift slowly without a tilt sensor.
+- **Hull reveal:** a new hull arrives out of a hyperspace tunnel and turns in a pool of light on the level-up screen.
+- The tokens, components and screens are in `web/index.html`.
 
 ## Look and motion
 
@@ -110,12 +135,12 @@ Each sector's layout is generated from its number, so the same sector is always 
 
 - `web/logic.js`: the rules, difficulty curve, level generator and Radar logic. It has no DOM, so Node can test it.
 - `web/game.js`, `web/index.html`: game loop, motion, touch input, boosters, HUD, sector map, hangar and screens.
-- `web/render.js`: the sprite painter (rockets, saucers, pads, hangar floor, backdrop). `web/progress.js`: XP, levels, ranks, rewards, hulls. `web/audio.js`: synthesized sound and haptics.
+- `web/render.js`: the sprite painter (rockets, saucers, pads, hangar floor, backdrop). `web/progress.js`: XP, levels, ranks, rewards, hulls. `web/audio.js`: synthesized sound and haptics. `web/pass.js`: the Star Pass (thresholds, rewards, claiming, trails).
 - `android/`: a small fullscreen portrait `WebView` app that serves `web/` from its assets.
-- `test/logic.check.mjs`, `test/progress.check.mjs`: check that sectors 1–80 build with about 60+ rockets and can be solved, that the curve grows, that Radar picks correctly, and the XP, level, reward and unlock math. Run `cd sifiship && npm test`.
+- `test/logic.check.mjs`, `test/progress.check.mjs`, `test/pass.check.mjs`: check that sectors 1–80 build with about 60+ rockets and can be solved, that the curve grows, that Radar picks correctly, the XP, level, reward and unlock math (`test/progress.check.mjs`), and the Star Pass (`test/pass.check.mjs`). Run `cd sifiship && npm test`.
 
 ## Build
 
-`bash sifiship/build-apk.sh` runs the checks and writes `dist/SIFIship-V.5.apk`. You need the Debian/Ubuntu tools `aapt dalvik-exchange apksigner zipalign android-sdk-platform-23` and a JDK. The first build creates `android/sifiship.keystore`, which git ignores. Keep it: an update installs over an older version only if both are signed with the same key.
+`bash sifiship/build-apk.sh` runs the checks and writes `dist/SIFIship-V.6.apk`. You need the Debian/Ubuntu tools `aapt dalvik-exchange apksigner zipalign android-sdk-platform-23` and a JDK. The first build creates `android/sifiship.keystore`, which git ignores. Keep it: an update installs over an older version only if both are signed with the same key.
 
 To try the game in a desktop browser, serve the folder and open it in phone-sized dev tools: `cd sifiship/web && python3 -m http.server`.

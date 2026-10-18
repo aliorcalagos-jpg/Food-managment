@@ -4,6 +4,7 @@ import { COLORS, DIRS, BAYS, EXTRA_BAYS, generateLevel, occupancy, blocker, exit
 import { SKINS, xpToNext, addXp, winXp, lossXp, rankFor, levelRewards, nextUnlock, streakMultiplier } from "./progress.js";
 import { setDpr, shipSprite, shadowSprite, glowSprite, saucerSprite, padSprite, hangarTexture, backdrop, drawSprite, rgba, chevronSprite } from "./render.js";
 import { sfx, buzz, initAudio, bindSettings } from "./audio.js";
+import { SEASON, TRAILS, tierStars, tierFor, tierReward, claimable, ownedTrails, tierProgress } from "./pass.js";
 
 const canvas = document.getElementById("c");
 const ctx = canvas.getContext("2d");
@@ -41,11 +42,13 @@ const defaults = {
   pilot: { level: 1, xp: 0 },
   skin: "interceptor",
   streak: 0,
+  pass: { season: 1, claimed: [] },
+  trail: "plasma",
 };
 let save = { ...defaults };
 try {
   const stored = JSON.parse(localStorage.getItem(SAVE_KEY) || "{}");
-  save = { ...defaults, ...stored, boost: { ...defaults.boost, ...(stored.boost || {}) } };
+  save = { ...defaults, ...stored, boost: { ...defaults.boost, ...(stored.boost || {}) }, pass: { ...defaults.pass, ...(stored.pass || {}) } };
   // V.2 players had stars but no pilot level: credit their stars as XP once.
   if (!stored.pilot) {
     const total = Object.values(save.stars).reduce((a, b) => a + b, 0);
@@ -120,6 +123,13 @@ function getLevel(n) {
 }
 
 function startLevel(n) {
+  // scan-line wipe into the sector
+  const wipe = $("wipe");
+  wipe.classList.remove("go");
+  void wipe.offsetWidth;
+  wipe.classList.add("go");
+  clearTimeout(startLevel.wipeTimer);
+  startLevel.wipeTimer = setTimeout(() => wipe.classList.remove("go"), 750);
   const lv = getLevel(n);
   levelCache.delete(n - 1);
   G.n = n;
@@ -786,7 +796,9 @@ function finish() {
     const before = save.stars[G.n] || 0;
     save.streak += 1;
     const xp = winXp({ sector: G.n, stars: starsWon, firstClear: !before, boss: G.cfg.boss, maxCombo: G.maxMult, streak: save.streak, golds: G.golds });
+    const passBefore = totalStars();
     save.stars[G.n] = Math.max(before, starsWon);
+    const passAfter = totalStars();
     save.level = Math.max(save.level, G.n + 1);
     const best = G.score > save.best;
     save.best = Math.max(save.best, G.score);
@@ -816,7 +828,13 @@ function finish() {
     if (xp.mult > 1) parts.push(`<span><b>×${xp.mult.toFixed(1)}</b> win streak</span>`);
     $("xpParts").innerHTML = parts.join("");
     [...$("xpParts").children].forEach((el, i) => (el.style.animationDelay = `${1.2 + i * 0.12}s`));
-    $("winChips").innerHTML = save.streak > 1 ? `<span class="chip fire">🔥 ${save.streak} WIN STREAK</span>` : "";
+    const chips = [];
+    if (save.streak > 1) chips.push(`<span class="chip fire">🔥 ${save.streak} WIN STREAK</span>`);
+    if (passAfter > passBefore) chips.push(`<span class="chip gold">✦ STAR PASS +${passAfter - passBefore}★</span>`);
+    const tierNow = tierFor(passAfter);
+    if (tierNow > tierFor(passBefore)) chips.push(`<span class="chip cyan">TIER ${tierNow} UNLOCKED · CLAIM</span>`);
+    else if (tierNow < SEASON.tiers) chips.push(`<span class="chip">${tierStars(tierNow + 1) - passAfter}★ TO TIER ${tierNow + 1}</span>`);
+    $("winChips").innerHTML = chips.join("");
     animateXp(gain, xp.total, 1300);
     // Build the next sector while the player reads the results.
     setTimeout(() => {
@@ -948,15 +966,72 @@ function showLevelUp() {
   let html = "";
   let d = 0.5;
   for (const [k, v] of Object.entries(r.boost)) {
-    html += `<div class="reward glass" style="animation-delay:${d}s"><div class="ic">${BOOSTS[k].icon}</div><div class="nm">+${v} ${BOOSTS[k].label.toUpperCase()}</div></div>`;
+    html += `<div class="reward frame" style="animation-delay:${d}s"><div class="ic">${BOOSTS[k].icon}</div><div class="nm">+${v} ${BOOSTS[k].label.toUpperCase()}</div></div>`;
     d += 0.15;
   }
   if (r.skin)
-    html += `<div class="reward glass skin" style="animation-delay:${d}s"><canvas data-skin="${r.skin.id}" width="168" height="80"></canvas><div class="nm">NEW HULL · ${r.skin.name.toUpperCase()}</div></div>`;
+    html += `<div class="reward frame skin" style="animation-delay:${d}s"><canvas data-skin="${r.skin.id}"></canvas><div class="nm">NEW HULL · ${r.skin.name.toUpperCase()}</div></div>`;
   $("luRewards").innerHTML = html;
   for (const c of $("luRewards").querySelectorAll("canvas")) paintPreview(c, c.dataset.skin, 1);
+  $("luReveal").classList.toggle("show", !!r.skin);
+  if (r.skin) hullReveal(r.skin.id);
   sfx.levelUp();
   buzz("long");
+}
+
+/** A new hull arrives: a hyperspace tunnel collapses onto it, then it turns in a pool of light. */
+function hullReveal(skin) {
+  const c = $("luReveal");
+  const g = c.getContext("2d");
+  const r = window.devicePixelRatio || 1;
+  const w = c.clientWidth || 340;
+  const h = c.clientHeight || 190;
+  c.width = w * r;
+  c.height = h * r;
+  g.setTransform(r, 0, 0, r, 0, 0);
+  const streaks = Array.from({ length: 70 }, () => ({ a: Math.random() * Math.PI * 2, d: Math.random(), v: 0.6 + Math.random() }));
+  const t0 = performance.now();
+  const step = (now) => {
+    if (G.phase !== "levelup" || !c.classList.contains("show")) return;
+    const t = (now - t0) / 1000;
+    g.clearRect(0, 0, w, h);
+    const cx = w / 2;
+    const cy = h / 2;
+    // hyperspace: streaks rush outward, slowing as the hull arrives
+    const speed = Math.max(0.05, 1.6 - t);
+    g.save();
+    g.globalCompositeOperation = "lighter";
+    for (const s of streaks) {
+      s.d = (s.d + s.v * speed * 0.03) % 1;
+      const r0 = s.d * w * 0.6;
+      const r1 = r0 + 6 + speed * 40 * s.d;
+      g.strokeStyle = `rgba(150,230,255,${0.15 + 0.6 * s.d})`;
+      g.lineWidth = 1 + s.d * 1.5;
+      g.beginPath();
+      g.moveTo(cx + Math.cos(s.a) * r0, cy + Math.sin(s.a) * r0 * 0.6);
+      g.lineTo(cx + Math.cos(s.a) * r1, cy + Math.sin(s.a) * r1 * 0.6);
+      g.stroke();
+    }
+    const k = Math.min(1, Math.max(0, (t - 0.5) / 0.6));
+    if (k > 0) {
+      const glow = g.createRadialGradient(cx, cy, 0, cx, cy, h * 0.55);
+      glow.addColorStop(0, `rgba(255,214,120,${0.5 * k})`);
+      glow.addColorStop(1, "rgba(255,214,120,0)");
+      g.fillStyle = glow;
+      g.fillRect(0, 0, w, h);
+    }
+    g.restore();
+    if (k > 0) {
+      const scale = 0.4 + 0.6 * (1 - Math.pow(1 - k, 3));
+      const spin = -Math.PI / 2 + Math.sin(t * 1.2) * 0.35 + (1 - k) * 2.5;
+      const spr = shipSprite(skin, Math.floor(t / 1.5) % COLORS.length, h * 0.75, h * 0.38);
+      g.globalAlpha = k;
+      drawSprite(g, spr, cx, cy, spin, scale);
+      g.globalAlpha = 1;
+    }
+    requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
 }
 function closeLevelUp() {
   if (pendingLevels.length) return showLevelUp();
@@ -1015,6 +1090,13 @@ function updateFx(dt) {
 }
 
 // ---------- drawing ----------
+const tilt = { x: 0, y: 0, tx: 0, ty: 0, has: false };
+window.addEventListener("deviceorientation", (e) => {
+  if (e.gamma == null) return;
+  tilt.has = true;
+  tilt.tx = Math.max(-1, Math.min(1, e.gamma / 30));
+  tilt.ty = Math.max(-1, Math.min(1, ((e.beta || 0) - 40) / 30));
+});
 const stars = Array.from({ length: 90 }, () => ({
   x: Math.random() * 400,
   y: Math.random() * 900,
@@ -1025,11 +1107,14 @@ const stars = Array.from({ length: 90 }, () => ({
 function draw() {
   const { W, H } = L;
   ctx.save();
-  drawSprite(ctx, backdrop(W, H), 0, 0);
+  // Parallax: the backdrop and the stars shift a little with the phone's tilt (or drift slowly without a sensor).
+  tilt.x += ((tilt.has ? tilt.tx : Math.sin(G.t * 0.15)) - tilt.x) * 0.06;
+  tilt.y += ((tilt.has ? tilt.ty : Math.cos(G.t * 0.11)) - tilt.y) * 0.06;
+  drawSprite(ctx, backdrop(W + 28, H + 28), -14 + tilt.x * 12, -14 + tilt.y * 12);
   for (const s of stars) {
     ctx.globalAlpha = 0.25 + s.r * 0.4;
     ctx.fillStyle = "#d8e6ff";
-    ctx.fillRect(s.x, s.y, s.r, s.r * (1 + s.v / 30));
+    ctx.fillRect(s.x + tilt.x * 6 * s.r, s.y + tilt.y * 6 * s.r, s.r, s.r * (1 + s.v / 30));
   }
   ctx.globalAlpha = 1;
   if (fx.shake > 0) ctx.translate((Math.random() - 0.5) * fx.shake, (Math.random() - 0.5) * fx.shake);
@@ -1040,6 +1125,7 @@ function draw() {
     drawGrid();
     for (const s of G.ships) if (s.state === "fly" || s.state === "press") drawFlying(s);
     drawStormFx();
+    drawFieldLabels();
     if (G.aimId === -1) drawStormMeter();
     drawAim();
     drawFx();
@@ -1306,6 +1392,7 @@ function drawGrid() {
   const { gx, gy, cell } = L;
   const tex = hangarTexture(cols, rows, cell);
   drawSprite(ctx, tex, gx - tex.frame + tex.cx, gy - tex.frame + tex.cy);
+  drawBrackets(gx - tex.frame - 4, gy - tex.frame - 4, cols * cell + tex.frame * 2 + 8, rows * cell + tex.frame * 2 + 8, 16);
   const front = G.queue[G.q];
   const since = G.t - G.start;
   for (const s of G.ships) {
@@ -1634,6 +1721,39 @@ function drawStormFx() {
   ctx.restore();
 }
 
+/** Hairline corner brackets, the Luxe HUD's frame mark. */
+function drawBrackets(x, y, w, h, len, color = "rgba(124,243,255,0.75)") {
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.2;
+  ctx.shadowColor = "#22e4ff";
+  ctx.shadowBlur = 6;
+  ctx.beginPath();
+  for (const [cx, cy, sx, sy] of [[x, y, 1, 1], [x + w, y, -1, 1], [x, y + h, 1, -1], [x + w, y + h, -1, -1]]) {
+    ctx.moveTo(cx + sx * len, cy);
+    ctx.lineTo(cx, cy);
+    ctx.lineTo(cx, cy + sy * len);
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
+/** Small technical labels on the play field (left side, so they never meet the centered counters). */
+function drawFieldLabels() {
+  ctx.save();
+  ctx.font = `700 8px ${HEAD}`;
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = "rgba(143,163,212,0.75)";
+  ctx.fillText(`◆ HOSTILE WAVE${G.cfg.boss ? " · BOSS" : ""}`, 14, L.enemyTop + 7);
+  if (G.aimId === -1 && !(G.n === 1 && G.launches === 0))
+    ctx.fillText(`◆ HANGAR · ${G.cfg.cols}×${G.cfg.rows}`, L.gx, L.gy - 17);
+  ctx.restore();
+  const x0 = bayX(0) - L.bayW / 2 - 5;
+  const x1 = bayX(L.slots - 1) + L.bayW / 2 + 5;
+  drawBrackets(x0, L.bayTop - 4, x1 - x0, L.bayH + 8, 8, "rgba(124,243,255,0.45)");
+}
+
 /** The rocket to highlight: a Radar pick, or (sectors 1-2) a free hint after a short idle time. */
 function currentHint() {
   if (G.hintId !== -1 && G.t < G.hintUntil && G.ships[G.hintId].state === "grid") return G.ships[G.hintId];
@@ -1641,6 +1761,15 @@ function currentHint() {
   if (G.n > 2 || G.t - G.lastTap < idle) return null;
   return radarHint(G.ships.filter((s) => s.state === "grid"), G.queue, G.q, G.bays, G.cfg.cols, G.cfg.rows);
 }
+
+/** Engine-trail cosmetics (Star Pass): [outer glow, bright core] for segment i at fade k (0 tail, 1 head). */
+const TRAIL_STYLE = {
+  plasma: (c, k) => [rgba(c.glow, k * 0.55), null],
+  ion: (c, k) => [`rgba(60,170,255,${k * 0.6})`, `rgba(220,245,255,${k * 0.9})`],
+  solar: (c, k) => [`rgba(255,150,40,${k * 0.6})`, `rgba(255,240,190,${k})`],
+  void: (c, k) => [`rgba(178,107,255,${k * 0.7})`, `rgba(20,6,40,${k * 0.9})`],
+  nova: (c, k, i) => [`hsla(${(G.t * 360 + i * 28) % 360},100%,62%,${k * 0.65})`, `rgba(255,255,255,${k * 0.8})`],
+};
 
 function drawFlying(s) {
   if (s.state === "press") {
@@ -1657,14 +1786,21 @@ function drawFlying(s) {
     ctx.save();
     ctx.globalCompositeOperation = "lighter";
     ctx.lineCap = "round";
+    const style = TRAIL_STYLE[save.trail] || TRAIL_STYLE.plasma;
     for (let i = 1; i < s.trail.length; i++) {
       const k = i / s.trail.length;
-      ctx.strokeStyle = rgba(c.glow, k * 0.55);
-      ctx.lineWidth = L.shipW * 0.5 * k;
+      const [outer, core] = style(c, k, i);
       ctx.beginPath();
       ctx.moveTo(s.trail[i - 1][0], s.trail[i - 1][1]);
       ctx.lineTo(s.trail[i][0], s.trail[i][1]);
+      ctx.strokeStyle = outer;
+      ctx.lineWidth = L.shipW * 0.55 * k;
       ctx.stroke();
+      if (core) {
+        ctx.strokeStyle = core;
+        ctx.lineWidth = L.shipW * 0.18 * k;
+        ctx.stroke();
+      }
     }
     ctx.restore();
   }
@@ -1795,9 +1931,11 @@ function updateHud() {
 }
 
 // ---------- screens ----------
-const overlays = ["menu", "how", "map", "hangar", "pause", "win", "levelup", "lose"];
+const overlays = ["menu", "how", "map", "hangar", "pass", "pause", "win", "levelup", "lose"];
 function showOnly(id) {
   for (const o of overlays) $(o).classList.toggle("show", o === id);
+  // number the panel's children so they slide in one after another
+  if (id) $(id).querySelectorAll(".card > *").forEach((el, i) => el.style.setProperty("--i", i));
   const playing = id === null || id === "pause";
   $("hud").classList.toggle("show", playing);
   $("shieldBar").classList.toggle("show", playing);
@@ -1825,6 +1963,14 @@ function showMenu() {
   if (save.streak > 1) chips.push(`<span class="chip fire">🔥 ${save.streak} STREAK · XP ×${streakMultiplier(save.streak + 1).toFixed(1)}</span>`);
   $("menuChips").innerHTML = chips.join("");
   $("playBtn").textContent = save.level > 1 ? `Launch · Sector ${save.level}` : "Launch";
+  const stars = totalStars();
+  const prog = tierProgress(stars);
+  const ready = claimable(stars, save.pass.claimed).length;
+  $("passBtn").innerHTML =
+    `<span class="star">✦</span><div class="info"><div class="nm">STAR PASS · S${SEASON.id}</div>` +
+    `<div class="bar cyan"><i style="width:${prog.frac * 100}%"></i></div>` +
+    `<div class="small">Tier ${prog.tier}/${SEASON.tiers}${prog.tier < SEASON.tiers ? ` · ${prog.to - stars}★ to tier ${prog.tier + 1}` : " · complete"}</div></div>` +
+    (ready ? `<span class="badge">${ready}</span>` : "");
   showOnly("menu");
   // A level reached on a lost run is celebrated here.
   if (pendingLevels.length) setTimeout(() => G.phase === "menu" && showLevelUp(), 350);
@@ -1883,12 +2029,147 @@ function showHangar() {
     const locked = save.pilot.level < s.level;
     const on = save.skin === s.id;
     const act = locked ? `🔒 LV ${s.level}` : on ? "EQUIPPED" : "EQUIP";
-    html += `<button class="skin ${locked ? "locked" : ""} ${on ? "on" : ""}" data-skin="${s.id}"><canvas data-color="${i % COLORS.length}"></canvas>` +
+    html += `<button class="skin frame ${locked ? "locked" : ""} ${on ? "on" : ""}" data-skin="${s.id}"><canvas data-color="${i % COLORS.length}"></canvas>` +
       `<div><div class="nm">${s.name.toUpperCase()}</div><div class="small">${s.blurb}</div></div><span class="act">${act}</span></button>`;
   });
   $("skinList").innerHTML = html;
   for (const c of $("skinList").querySelectorAll("canvas")) paintPreview(c, c.parentElement.dataset.skin, Number(c.dataset.color));
+  const owned = ownedTrails(save.pass.claimed);
+  $("trailList").innerHTML = TRAILS.map((t) => {
+    const locked = !owned.includes(t.id);
+    const on = save.trail === t.id;
+    const act = locked ? `🔒 TIER ${t.tier}` : on ? "EQUIPPED" : "EQUIP";
+    return `<button class="skin frame ${locked ? "locked" : ""} ${on ? "on" : ""}" data-trail="${t.id}"><canvas></canvas>` +
+      `<div><div class="nm">${t.name.toUpperCase()}</div><div class="small">${t.blurb}</div></div><span class="act">${act}</span></button>`;
+  }).join("");
+  for (const c of $("trailList").querySelectorAll("canvas")) paintTrail(c, c.parentElement.dataset.trail);
 }
+
+/** A sample streak of an engine trail, for the hangar and the Star Pass. */
+function paintTrail(c, id) {
+  const g = c.getContext("2d");
+  const r = window.devicePixelRatio || 1;
+  const w = c.clientWidth || 92;
+  const h = c.clientHeight || 42;
+  c.width = w * r;
+  c.height = h * r;
+  g.setTransform(r, 0, 0, r, 0, 0);
+  const style = TRAIL_STYLE[id] || TRAIL_STYLE.plasma;
+  const col = COLORS[1];
+  g.globalCompositeOperation = "lighter";
+  g.lineCap = "round";
+  const n = 14;
+  for (let i = 1; i <= n; i++) {
+    const k = i / n;
+    const [outer, core] = style(col, k, i);
+    const x0 = 6 + ((i - 1) / n) * (w - 16);
+    const x1 = 6 + (i / n) * (w - 16);
+    const y = h / 2 + Math.sin(i * 0.5) * h * 0.12;
+    g.beginPath();
+    g.moveTo(x0, y);
+    g.lineTo(x1, y);
+    g.strokeStyle = outer;
+    g.lineWidth = h * 0.42 * k;
+    g.stroke();
+    if (core) {
+      g.strokeStyle = core;
+      g.lineWidth = h * 0.13 * k;
+      g.stroke();
+    }
+  }
+}
+$("trailList").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-trail]");
+  if (!b) return;
+  initAudio();
+  if (!ownedTrails(save.pass.claimed).includes(b.dataset.trail)) return sfx.error();
+  save.trail = b.dataset.trail;
+  persist();
+  sfx.unlock();
+  showHangar();
+});
+
+// ---------- Star Pass ----------
+/** What a tier gives, as an icon and a short label for its card. */
+function rewardInfo(k) {
+  const r = tierReward(k);
+  const trail = r.trail ? TRAILS.find((t) => t.id === r.trail) : null;
+  const boosts = Object.entries(r.boost);
+  const parts = [];
+  if (trail) parts.push(`Trail · ${trail.name}`);
+  if (r.milestone) parts.push("2× every booster");
+  else for (const [b, n] of boosts) parts.push(`${n}× ${BOOSTS[b].label}`);
+  if (r.xp) parts.push(`+${r.xp} XP`);
+  const icon = r.milestone ? "✦" : boosts.length ? BOOSTS[boosts[0][0]].icon : "◆";
+  return { r, icon, label: parts.join(" · "), trail };
+}
+
+function showPass(flash = 0) {
+  G.phase = "pass";
+  const stars = totalStars();
+  const prog = tierProgress(stars);
+  const ready = claimable(stars, save.pass.claimed);
+  $("passHead").innerHTML =
+    `<div class="big">${stars}★</div><div class="info"><div class="lbl">Tier ${prog.tier} / ${SEASON.tiers}</div>` +
+    `<div class="bar cyan"><i style="width:${prog.frac * 100}%"></i></div>` +
+    `<div class="small">${prog.tier < SEASON.tiers ? `${prog.to - stars}★ to tier ${prog.tier + 1} · replay sectors for 3★` : "Season complete"}</div></div>`;
+  $("claimAllBtn").style.display = ready.length > 1 ? "" : "none";
+  $("claimAllBtn").textContent = `Claim all · ${ready.length}`;
+  const claimed = new Set(save.pass.claimed);
+  let html = "";
+  for (let k = 1; k <= SEASON.tiers; k++) {
+    const info = rewardInfo(k);
+    const open = k <= prog.tier;
+    const done = claimed.has(k);
+    const cls = ["tier", open ? "open" : "", info.r.milestone ? "mile" : "", open && !done ? "ready" : "", done ? "done" : "", flash === k ? "flash" : ""].join(" ");
+    const st = done ? "✓ CLAIMED" : open ? "CLAIM" : `${tierStars(k)}★`;
+    const ic = info.trail ? `<canvas data-trail="${info.trail}"></canvas>` : info.icon;
+    html += `<div class="${cls}" data-k="${k}"><div class="node2">${k}</div><button class="tcard frame" data-k="${k}">` +
+      `<div class="ic">${ic}</div><div><div class="nm">${info.label.toUpperCase()}</div><div class="need">Tier ${k} · ${tierStars(k)}★</div></div>` +
+      `<span class="st">${st}</span></button></div>`;
+  }
+  $("passList").innerHTML = html;
+  for (const c of $("passList").querySelectorAll("canvas")) paintTrail(c, c.dataset.trail);
+  if (G.phase === "pass" && !$("pass").classList.contains("show")) showOnly("pass");
+  // bring the first reward waiting (or the next tier to reach) into view
+  const focus = $("passList").querySelector(".tier.ready") || $("passList").querySelector(`.tier[data-k="${Math.min(SEASON.tiers, prog.tier + 1)}"]`);
+  if (focus && !flash) $("passList").scrollTop = focus.offsetTop - $("passList").clientHeight / 3;
+}
+
+/** Claims tier `k`: boosters and XP are added, a trail is unlocked (and equipped if still on the default). */
+function claimTier(k) {
+  if (!claimable(totalStars(), save.pass.claimed).includes(k)) return false;
+  const r = tierReward(k);
+  save.pass.claimed.push(k);
+  for (const [b, n] of Object.entries(r.boost)) save.boost[b] += n;
+  if (r.trail && save.trail === "plasma") save.trail = r.trail;
+  persist();
+  if (r.xp) grantXp(r.xp);
+  return true;
+}
+
+$("passList").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-k]");
+  if (!b) return;
+  initAudio();
+  const k = Number(b.dataset.k);
+  if (!claimTier(k)) return sfx.error();
+  sfx.gold();
+  buzz("tick");
+  const top = $("passList").scrollTop;
+  showPass(k);
+  $("passList").scrollTop = top;
+  if (pendingLevels.length) setTimeout(() => G.phase === "pass" && showLevelUp(), 500);
+});
+$("claimAllBtn").addEventListener("click", () => {
+  initAudio();
+  const ready = claimable(totalStars(), save.pass.claimed);
+  ready.forEach(claimTier);
+  sfx.levelUp();
+  buzz("long");
+  showPass(ready[ready.length - 1]);
+  if (pendingLevels.length) setTimeout(() => G.phase === "pass" && showLevelUp(), 500);
+});
 $("skinList").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-skin]");
   if (!b) return;
@@ -1945,6 +2226,9 @@ onTap("mapBtn", showMap);
 onTap("mapBack", showMenu);
 onTap("hangarBtn", showHangar);
 onTap("hangarBack", showMenu);
+onTap("passBtn", () => showPass());
+onTap("passBack", showMenu);
+onTap("winPassBtn", () => showPass());
 onTap("howBtn", () => {
   G.phase = "how";
   showOnly("how");
@@ -1971,7 +2255,7 @@ window.__back = () => {
   if (p === "pause") return resume(), true;
   if (p === "levelup") return closeLevelUp(), true;
   if (p === "lose") return settleLoss(), showMenu(), true;
-  if (p === "win" || p === "map" || p === "hangar" || p === "how") return showMenu(), true;
+  if (p === "win" || p === "map" || p === "hangar" || p === "how" || p === "pass") return showMenu(), true;
   return false;
 };
 window.__pause = pause;
@@ -1992,6 +2276,11 @@ window.__sifi = {
   free: () => (G.free ? [...G.free] : []),
   blocked: () => G.ships.filter((s) => s.state === "grid" && !G.free.has(s.id)).map((s) => s.id),
   aim: () => G.aimId,
+  pass: () => ({ stars: totalStars(), claimed: save.pass.claimed.slice(), ready: claimable(totalStars(), save.pass.claimed), trail: save.trail, boost: { ...save.boost } }),
+  grantStars: (map) => {
+    Object.assign(save.stars, map);
+    persist();
+  },
   extra: () => ({ golds: G.golds, storms: G.storms, stormLeft: G.stormLeft, queue: G.queue.slice(G.q),
     bays: G.bays.map((b) => b && { color: b.color, ammo: b.ammo }),
     hangar: G.ships.filter((s) => s.state === "grid" || s.state === "bounce").map((s) => ({ color: s.color, cap: s.cap })) }),
